@@ -1,0 +1,13 @@
+description: Vibration motor controlled by one GPIO
+
+compatible: "gpio-vibration-motor"
+
+include: base.yaml
+
+properties:
+  gpios:
+    type: phandle-array
+    required: true
+    description: |
+      GPIO connected to the motor driver enable input. The GPIO flags describe
+      whether the enable signal is active high or active low.

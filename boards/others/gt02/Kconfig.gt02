@@ -1,0 +1,9 @@
+# GT02板级Kconfig入口：负责把板目标映射到正确的SoC。
+
+# SPDX-License-Identifier: Apache-2.0
+
+# BOARD_GT02由Zephyr根据board.yml自动生成并在选择GT02时置为y。
+config BOARD_GT02
+	# 当目标限定符是nrf52840时，选择nRF52840 QIAA封装的SoC定义。
+	# 这里只选择SoC，不在板级Kconfig中开启BLE、日志等应用功能。
+	select SOC_NRF52840_QIAA if BOARD_GT02_NRF52840

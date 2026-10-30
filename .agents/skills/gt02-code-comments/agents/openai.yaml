@@ -1,0 +1,7 @@
+interface:
+  display_name: "GT02 中文代码注释规范"
+  short_description: "为函数补充中文用途说明，为头文件详细注明参数、返回值、调用约束和数据生命周期"
+  default_prompt: "使用 $gt02-code-comments 按中文规范为指定模块补充注释：每个函数简述用途，头文件详细说明参数、返回值和调用约束，保持代码行为不变。"
+
+policy:
+  allow_implicit_invocation: true

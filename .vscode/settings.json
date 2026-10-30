@@ -1,0 +1,15 @@
+{
+    "cmake.configureOnOpen": false,
+    "C_Cpp.intelliSenseEngine": "default",
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/build_ncs_341/compile_commands.json",
+    "C_Cpp.default.compilerPath": "C:/ncs/toolchains/4f5b6ad6dd/opt/zephyr-sdk/gnu/arm-zephyr-eabi/bin/arm-zephyr-eabi-gcc.exe",
+    "C_Cpp.default.intelliSenseMode": "windows-gcc-arm",
+    "C_Cpp.errorSquiggles": "enabled",
+    "nrf-connect.applications": [],
+    "nrf-connect.boardRoots": [
+        "${workspaceFolder}"
+    ],
+    "nrf-connect.debugging.bindings": {
+        "${workspaceFolder}/build_ncs_341": "Launch MyProject/build_ncs_341"
+    }
+}

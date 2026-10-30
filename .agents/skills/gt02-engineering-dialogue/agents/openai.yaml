@@ -1,0 +1,7 @@
+interface:
+  display_name: "GT02 工程思路与设计讨论"
+  short_description: "用中文从场景、行为与状态推导工程边界，审视职责、生命周期与最小稳定抽象"
+  default_prompt: "使用 $gt02-engineering-dialogue 结合当前工程审视这个设计，先回答实际问题，再解释边界、状态所有权、生命周期和复杂度取舍，不堆砌概念。"
+
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,32 @@
+# 应用私有的板级接线binding，不是某款模组的官方驱动binding。
+description: |
+  GT02 board wiring for an external UART cellular modem. This node describes
+  the UART reference and MCU-side control signals only. It does not identify
+  a particular modem model and does not instantiate a power sequencing driver.
+
+compatible: "gt02-modem-interface"
+
+include: base.yaml
+
+properties:
+  uart:
+    type: phandle
+    required: true
+    description: |
+      UART controller connected to the modem. Its pinctrl and communication
+      settings are defined on that controller. The controller may remain
+      disabled during board bring-up until power sequencing is implemented.
+
+  power-gpios:
+    type: phandle-array
+    required: true
+    description: |
+      MCU-side modem supply enable signal. GPIO flags describe the active
+      level at the MCU pin, including any inversion in the board circuitry.
+
+  pwrkey-gpios:
+    type: phandle-array
+    required: true
+    description: |
+      MCU-side modem PWRKEY control signal. Pulse timing must be provided by
+      a future modem adapter after the installed module has been confirmed.

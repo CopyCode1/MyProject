@@ -1,0 +1,32 @@
+# 该文件提供具体构建目标的能力和资源元数据。
+# 它用于west boards、文档和测试筛选，不代替DTS中的真实硬件描述。
+
+# 唯一构建目标名称，命令行通过-b gt02/nrf52840选择它。
+identifier: gt02/nrf52840
+# 面向开发者显示的目标名称。
+name: GT02 nRF52840
+# 声明该目标是真实MCU板，而不是仿真器或native目标。
+type: mcu
+# nRF52840使用Arm架构。
+arch: arm
+# RAM容量元数据，单位为KB；真正的地址和大小来自SoC DTS。
+ram: 256
+# Flash容量元数据，单位为KB；当前未做MCUboot或OTA分区。
+flash: 1024
+# 声明可用于构建该板的工具链。
+toolchain:
+  # Zephyr SDK工具链标识。
+  - zephyr
+  # 兼容独立GNU Arm Embedded工具链。
+  - gnuarmemb
+# 声明板可支持的Zephyr能力，供样例和自动测试筛选。
+# 这些条目不会自动打开对应的CONFIG选项。
+supported:
+  # nRF52840具备BLE射频与控制器能力。
+  - bluetooth
+  # 当前DTS已启用GPIO0和GPIO1。
+  - gpio
+  # nRF52840包含硬件看门狗，后续阶段会接入健康监控。
+  - watchdog
+# 与board.yml保持一致的厂商分类。
+vendor: others

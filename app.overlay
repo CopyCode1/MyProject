@@ -1,0 +1,25 @@
+/*
+ * 当前应用的外设启用覆盖及Flash测试分区。
+ * UART0引脚、波特率、控制台选择均已集中到板级DTS，此处不再配置串口。
+ * 本文件由Zephyr作为默认应用overlay加载；固定外设接线由板级DTS定义。
+ * 六轴由自定义FIFO适配器管理，外部Flash由官方SPI NOR驱动管理。
+ */
+&w25q128jv {
+	status = "okay";
+
+	/*
+	 * 用户明确批准的破坏性测试区；这里只划出最后一个4 KiB扇区。
+	 * reg的偏移/长度单位均为字节，不是Flash节点size属性使用的bit。
+	 * 定义分区不会自动擦除；仅启用GT02_FLASH_SELF_TEST后才执行擦写。
+	 */
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		flash_test_partition: partition@fff000 {
+			label = "gt02-flash-selftest";
+			reg = <0x00fff000 0x00001000>;
+		};
+	};
+};

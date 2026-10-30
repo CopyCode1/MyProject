@@ -1,0 +1,18 @@
+{
+	"folders": [
+		{
+			"path": "../.."
+		}
+	],
+	"settings": {
+		"nrf-connect.applications": [],
+		"nrf-connect.boardRoots": [
+			"${workspaceFolder}"
+		],
+		"nrf-connect.debugging.bindings": {
+			"${workspaceFolder}/build_ncs_341": "Launch MyProject/build_ncs_341"
+		},
+		"stm32cube-ide-clangd.path": "cube",
+		"git.ignoreLimitWarning": true
+	}
+}

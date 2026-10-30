@@ -1,0 +1,9 @@
+{
+    "recommendations": [
+        "marus25.cortex-debug",
+        "ms-vscode.cpptools",
+        "nordic-semiconductor.nrf-devicetree",
+        "nordic-semiconductor.nrf-kconfig",
+        "nordic-semiconductor.nrf-terminal"
+    ]
+}

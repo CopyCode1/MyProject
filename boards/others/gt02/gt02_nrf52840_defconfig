@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# 启用Cortex-M内存保护单元，供Zephyr实现栈保护等内核安全能力。
+CONFIG_ARM_MPU=y
+# 利用MPU检测线程栈越界；这是板级基础保护，不属于某个产品功能。
+CONFIG_HW_STACK_PROTECTION=y
+# GPIO是GT02最小板级启动所必需的驱动能力。
+CONFIG_GPIO=y

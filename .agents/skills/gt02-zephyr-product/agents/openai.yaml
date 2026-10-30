@@ -1,0 +1,7 @@
+interface:
+  display_name: "GT02 Zephyr Product Engineering"
+  short_description: "Design and review maintainable GT02 Zephyr firmware"
+  default_prompt: "Use $gt02-zephyr-product to design or implement the next GT02 Zephyr product feature with clear boundaries and verification."
+
+policy:
+  allow_implicit_invocation: true

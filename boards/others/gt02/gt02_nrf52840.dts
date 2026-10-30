@@ -1,0 +1,309 @@
+/*
+ * GT02 nRF52840板级设备树。
+ *
+ * DTS只描述真实存在的硬件及连接关系，不描述产品运行策略。
+ * 当前包括内部存储器、基础GPIO、UART0日志口、4G硬件接口、LSM6DSO和外部Flash。
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/* 声明这是一个完整的Devicetree源文件。 */
+/dts-v1/;
+
+/*
+ * 继承Zephyr提供的nRF52840 QIAA SoC描述。
+ * 该文件已经定义CPU、1 MB内部Flash、256 KB SRAM和片上外设控制器。
+ */
+#include <nordic/nrf52840_qiaa.dtsi>
+/* 提供INPUT_KEY_0等标准输入事件编号。 */
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+/* 提供NRF_PSEL()及UART/I2C/SPI引脚复用功能编号。 */
+#include <zephyr/dt-bindings/pinctrl/nrf-pinctrl.h>
+
+/* `/`表示整棵设备树的根节点，也就是当前GT02整板。 */
+/ {
+	/* 人类可读的板型名称，会进入最终生成的设备树。 */
+	model = "GT02 nRF52840";
+	/* 机器可读兼容字符串，用于唯一描述该板型。 */
+	compatible = "others,gt02-nrf52840";
+
+	/* chosen用于告诉Zephyr系统级资源应该选择哪个硬件节点。 */
+	chosen {
+		/* 选择SoC内部flash0作为程序存储器；当前不指定code-partition。 */
+		zephyr,flash = &flash0;
+		/* 选择SoC内部sram0作为程序运行时内存。 */
+		zephyr,sram = &sram0;
+		/* GT02默认日志控制台使用下面配置的UART0。 */
+		zephyr,console = &uart0;
+	};
+
+	/* 使用Zephyr标准gpio-leds绑定描述由GPIO控制的LED。 */
+	leds {
+		/* 选择通用gpio-leds驱动模型，应用不需要知道nRF寄存器。 */
+		compatible = "gpio-leds";
+
+		/* led_green是可被其他DTS属性引用的节点标签。 */
+		led_green: led_green {
+			/* 绿色LED接P1.15，GPIO_ACTIVE_LOW表示输出低电平时点亮。 */
+			gpios = <&gpio1 15 GPIO_ACTIVE_LOW>;
+			/* 供日志、Shell或调试工具显示的人类可读名称。 */
+			label = "GT02 Green LED";
+		};
+
+		/* 红色LED硬件节点。 */
+		led_red: led_red {
+			/* 红色LED接P1.10，低电平点亮。 */
+			gpios = <&gpio1 10 GPIO_ACTIVE_LOW>;
+			/* 红色LED显示名称。 */
+			label = "GT02 Red LED";
+		};
+
+		/* 蓝色LED硬件节点。 */
+		led_blue: led_blue {
+			/* 蓝色LED接P1.13，低电平点亮。 */
+			gpios = <&gpio1 13 GPIO_ACTIVE_LOW>;
+			/* 蓝色LED显示名称。 */
+			label = "GT02 Blue LED";
+		};
+
+		/* 电池状态绿色LED硬件节点。 */
+		led_battery_green: led_battery_green {
+			/* 电池绿灯接P0.30，低电平点亮。 */
+			gpios = <&gpio0 30 GPIO_ACTIVE_LOW>;
+			/* 电池绿灯显示名称。 */
+			label = "GT02 Battery Green LED";
+		};
+	};
+
+	/* 使用Zephyr标准gpio-keys绑定描述GPIO按键。 */
+	buttons {
+		/* 选择通用GPIO按键模型，后续可配合input或直接GPIO接口使用。 */
+		compatible = "gpio-keys";
+
+		/* SOS按键节点，sos_button是其节点标签。 */
+		sos_button: button_sos {
+			/*
+			 * SOS按键接P1.07。
+			 * GPIO_PULL_UP启用内部上拉；GPIO_ACTIVE_LOW表示按下时读取为有效状态。
+			 */
+			gpios = <&gpio1 7 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+			/* SOS按键显示名称。 */
+			label = "GT02 SOS Button";
+			/* 给该按键分配标准输入键码；它不定义单击、长按等产品行为。 */
+			zephyr,code = <INPUT_KEY_0>;
+		};
+	};
+
+	/* 描述由单个GPIO使能信号控制的板载振动马达。 */
+	vibration_motor: vibration-motor {
+		/* 使用工程内的GT02 GPIO马达binding描述该硬件能力。 */
+		compatible = "gpio-vibration-motor";
+		/* 马达驱动使能接P1.04，高电平启动、低电平停止。 */
+		gpios = <&gpio1 4 GPIO_ACTIVE_HIGH>;
+		/* okay表示该马达控制节点在当前板型上真实存在且可用。 */
+		status = "okay";
+	};
+
+	/*
+	 * 4G模组的板级连接，不声明尚未确认的Air780/NT26具体型号。
+	 * 该自定义binding只生成连接信息，不会自动配置GPIO或执行上电时序。
+	 */
+	modem_interface: modem-interface {
+		compatible = "gt02-modem-interface";
+		/* UART0已用于日志，因此为4G预留独立的UART1。 */
+		uart = <&uart1>;
+		/* 旧板宏INVERT=0：MCU端输出高电平有效。 */
+		power-gpios = <&gpio0 31 GPIO_ACTIVE_HIGH>;
+		pwrkey-gpios = <&gpio1 8 GPIO_ACTIVE_HIGH>;
+		status = "okay";
+	};
+
+	/* aliases提供稳定的逻辑名称，使应用不依赖上面的具体节点名。 */
+	aliases {
+		/* 标准led0映射到GT02绿色LED。 */
+		led0 = &led_green;
+		/* 标准led1映射到GT02红色LED。 */
+		led1 = &led_red;
+		/* 标准led2映射到GT02蓝色LED。 */
+		led2 = &led_blue;
+		/* 标准led3映射到GT02电池绿色LED。 */
+		led3 = &led_battery_green;
+		/* 标准sw0映射到GT02 SOS按键。 */
+		sw0 = &sos_button;
+		/* motor0为应用提供稳定的马达逻辑名称，不暴露物理引脚。 */
+		motor0 = &vibration_motor;
+		/* imu0为应用提供稳定的六轴传感器逻辑名称。 */
+		imu0 = &lsm6dso;
+		/* 外部存储逻辑名；程序仍从chosen中选定的内部flash0启动。 */
+		ext-flash0 = &w25q128jv;
+		/* 4G适配层从该接口节点获取UART及电源控制GPIO。 */
+		modem0 = &modem_interface;
+		/* 标准watchdog0映射到nRF52840片上看门狗。 */
+		watchdog0 = &wdt0;
+	};
+};
+
+/*
+ * 集中定义板上I2C1、SPI2、UART0日志口和UART1模组接口的引脚状态。
+ * 旧工程中的TWI1对应Zephyr的i2c1，SCL和SDA分别连接P0.14与P0.19。
+ */
+&pinctrl {
+	i2c1_default: i2c1_default {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SCL, 0, 14)>,
+				<NRF_PSEL(TWIM_SDA, 0, 19)>;
+		};
+	};
+
+	i2c1_sleep: i2c1_sleep {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SCL, 0, 14)>,
+				<NRF_PSEL(TWIM_SDA, 0, 19)>;
+			low-power-enable;
+		};
+	};
+
+	/* 沿用旧工程SPI2接线：SCK=P0.04、MOSI=P0.25、MISO=P0.28。 */
+	spi2_default: spi2_default {
+		group1 {
+			psels = <NRF_PSEL(SPIM_SCK, 0, 4)>,
+				<NRF_PSEL(SPIM_MOSI, 0, 25)>,
+				<NRF_PSEL(SPIM_MISO, 0, 28)>;
+		};
+	};
+
+	/* 控制器休眠时释放SPI引脚；Flash深度休眠由后续电源切片处理。 */
+	spi2_sleep: spi2_sleep {
+		group1 {
+			psels = <NRF_PSEL(SPIM_SCK, 0, 4)>,
+				<NRF_PSEL(SPIM_MOSI, 0, 25)>,
+				<NRF_PSEL(SPIM_MISO, 0, 28)>;
+			low-power-enable;
+		};
+	};
+
+	/* 固定日志串口：TX=P1.05、RX=P0.24；RX空闲时保持上拉。 */
+	log_uart_default: log_uart_default {
+		tx {
+			psels = <NRF_PSEL(UART_TX, 1, 5)>;
+		};
+		rx {
+			psels = <NRF_PSEL(UART_RX, 0, 24)>;
+			bias-pull-up;
+		};
+	};
+
+	/* 保留原来的串口低功耗引脚状态，不在本次迁移中改变电源策略。 */
+	log_uart_sleep: log_uart_sleep {
+		group1 {
+			psels = <NRF_PSEL(UART_TX, 1, 5)>,
+				<NRF_PSEL(UART_RX, 0, 24)>;
+			low-power-enable;
+		};
+	};
+
+	/* 方向以MCU为准：P0.27发往模组RX，P0.07接模组TX。 */
+	modem_uart_default: modem_uart_default {
+		tx {
+			psels = <NRF_PSEL(UART_TX, 0, 27)>;
+		};
+		rx {
+			psels = <NRF_PSEL(UART_RX, 0, 7)>;
+			bias-pull-up;
+		};
+	};
+
+	/* 这里只声明低功耗引脚状态；不代表已经实现模组休眠/唤醒策略。 */
+	modem_uart_sleep: modem_uart_sleep {
+		group1 {
+			psels = <NRF_PSEL(UART_TX, 0, 27)>,
+				<NRF_PSEL(UART_RX, 0, 7)>;
+			low-power-enable;
+		};
+	};
+};
+
+/* UART0接线和默认通信参数属于板级描述，应用无需在overlay重复定义。 */
+&uart0 {
+	compatible = "nordic,nrf-uarte";
+	status = "okay";
+	current-speed = <115200>;
+	/* 当前串口不接RTS/CTS，保持无硬件流控。 */
+	/delete-property/ hw-flow-control;
+	pinctrl-0 = <&log_uart_default>;
+	pinctrl-1 = <&log_uart_sleep>;
+	pinctrl-names = "default", "sleep";
+};
+
+/* 4G UART接线沿用旧gt02_4g；由S1适配层在模组上电后初始化。 */
+&uart1 {
+	compatible = "nordic,nrf-uarte";
+	status = "okay";
+	/* 有设备实例但不在main之前初始化；关闭S1时也不会自动驱动串口线。 */
+	zephyr,deferred-init;
+	current-speed = <115200>;
+	data-bits = <8>;
+	parity = "none";
+	stop-bits = "1";
+	/delete-property/ hw-flow-control;
+	pinctrl-0 = <&modem_uart_default>;
+	pinctrl-1 = <&modem_uart_sleep>;
+	pinctrl-names = "default", "sleep";
+};
+
+/* 启用带EasyDMA的TWIM1控制器，并描述挂载在该总线上的LSM6DSO。 */
+&i2c1 {
+	compatible = "nordic,nrf-twim";
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_FAST>;
+	pinctrl-0 = <&i2c1_default>;
+	pinctrl-1 = <&i2c1_sleep>;
+	pinctrl-names = "default", "sleep";
+
+	/* SA0在GT02硬件上选择0x6A地址；INT1和INT2均未连接。 */
+	lsm6dso: lsm6dso@6a {
+		compatible = "st,lsm6dso";
+		reg = <0x6a>;
+		status = "okay";
+	};
+};
+
+/* 外部NOR使用独立SPIM2，与IMU的TWIM1分别由Zephyr管理。 */
+&spi2 {
+	compatible = "nordic,nrf-spim";
+	status = "okay";
+	pinctrl-0 = <&spi2_default>;
+	pinctrl-1 = <&spi2_sleep>;
+	pinctrl-names = "default", "sleep";
+	/* reg=<0>对应这张片选列表的第0项，片选低有效。 */
+	cs-gpios = <&gpio0 26 GPIO_ACTIVE_LOW>;
+
+	w25q128jv: flash@0 {
+		/* 使用Zephyr已有SPI NOR binding和驱动，无需自建W25Q binding。 */
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		spi-max-frequency = <8000000>;
+		/* 此属性单位是bit：128 Mbit = 16 MiB，不是128 MB。 */
+		size = <0x08000000>;
+		/* SFDP_RUNTIME读取实际参数；适配器检查旧端口支持的两种ID。 */
+		status = "okay";
+	};
+};
+
+/* 启用nRF的GPIOTE外设，后续按键GPIO中断需要它。 */
+&gpiote {
+	/* okay表示该硬件节点可以由Zephyr创建设备实例。 */
+	status = "okay";
+};
+
+/* 启用P0端口；蓝色LED位于该端口。 */
+&gpio0 {
+	/* okay表示允许GPIO驱动管理P0引脚。 */
+	status = "okay";
+};
+
+/* 启用P1端口；其余LED和SOS按键位于该端口。 */
+&gpio1 {
+	/* okay表示允许GPIO驱动管理P1引脚。 */
+	status = "okay";
+};

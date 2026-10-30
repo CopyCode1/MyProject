@@ -1,0 +1,56 @@
+# 应用配置入口：先加载Zephyr/NCS配置，再声明GT02自己的测试开关。
+mainmenu "GT02 firmware configuration"
+
+source "Kconfig.zephyr"
+
+menu "GT02 bring-up tests"
+
+config GT02_FLASH_SELF_TEST
+	bool "Destructive test of the approved external Flash sector"
+	depends on FLASH && SPI_NOR && FLASH_PAGE_LAYOUT && FLASH_MAP
+	default n
+	help
+	  Run once per boot, before starting the IMU. Erase, program and verify
+	  only the approved W25Q128JV sector at 0x00fff000, size 4096 bytes.
+	  ALL previous contents of this sector will be destroyed. Three test
+	  patterns are checked, then the sector is erased and verified again.
+	  Disable this option after bring-up; it is not a production self-test.
+
+endmenu
+
+menu "GT02 modem hardware"
+
+config GT02_MODEM_HW
+	bool "GPIO and raw UART hardware adapter"
+	depends on GPIO && SERIAL && SERIAL_SUPPORT_INTERRUPT
+	depends on DT_HAS_GT02_MODEM_INTERFACE_ENABLED
+	depends on UART_INTERRUPT_DRIVEN && RING_BUFFER && PM_DEVICE
+	default n
+	help
+	  Build the board GPIO and raw UART adapter only. Application startup
+	  prepares inactive POWER/PWRKEY signals, without powering the module
+	  or starting UART. No AT parser, module sequence or network service.
+	  Explicit UART suspend/resume uses device PM; system PM is not required.
+	  The separate optional hardware test can exercise power cycling and RX.
+
+if GT02_MODEM_HW
+
+config GT02_MODEM_UART_RX_SIZE
+	int "Shared raw UART receive ring size (bytes)"
+	range 512 8192
+	default 2048
+
+config GT02_MODEM_HW_TEST
+	bool "Temporary 10-second modem power-cycle and raw RX test"
+	depends on LOG
+	default n
+	help
+	  Start two temporary test threads after the hardware GPIO preparation.
+	  Print modem RX text on the configured log backend while power-cycling
+	  every 10 seconds after the initial power-on completes. No AT commands
+	  or TCP. Stop on power operation or online RX failure. Disable after
+	  hardware verification; this is not a production network service.
+
+endif
+
+endmenu

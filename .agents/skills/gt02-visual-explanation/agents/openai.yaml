@@ -1,0 +1,7 @@
+interface:
+  display_name: "GT02 中文讲解与图表"
+  short_description: "在本工程用中文解释技术问题，并按需用图表说明架构、状态、时序与数据流"
+  default_prompt: "使用 $gt02-visual-explanation 解释当前工程问题，先给结论，再按需要用图表说明关键关系；简单问题不强制画图。"
+
+policy:
+  allow_implicit_invocation: true

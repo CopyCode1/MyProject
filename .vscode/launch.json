@@ -1,0 +1,34 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "NCS: Debug GT02 nRF52840 (J-Link)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build_ncs_341/zephyr/zephyr.elf",
+            "servertype": "jlink",
+            "serverpath": "D:/Program Files/SEGGER/JLink_V964/JLinkGDBServerCL.exe",
+            "gdbPath": "C:/ncs/toolchains/4f5b6ad6dd/opt/zephyr-sdk/gnu/arm-zephyr-eabi/bin/arm-zephyr-eabi-gdb.exe",
+            "device": "nRF52840_xxAA",
+            "interface": "swd",
+            "svdFile": "C:/ncs/v3.4.1/modules/hal/nordic/nrfx/bsp/stable/mdk/nrf52840.svd",
+            "runToEntryPoint": "main",
+            "preLaunchTask": "NCS: Build GT02",
+            "showDevDebugOutput": "none"
+        },
+        {
+            "type": "nrf-debug",
+            "request": "launch",
+            "name": "Launch MyProject/build_ncs_341",
+            "config": "E:/NRF52840/ncsproject/MyProject/build_ncs_341",
+            "inferiors": [
+                {
+                    "elfFile": "E:/NRF52840/ncsproject/MyProject/build_ncs_341/zephyr/zephyr.elf",
+                    "entryPoint": "main"
+                }
+            ],
+            "preLaunchTask": "NCS: Build GT02"
+        }
+    ]
+}

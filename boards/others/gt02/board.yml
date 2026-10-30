@@ -1,0 +1,13 @@
+# board.yml描述“这块板是谁，以及它包含哪个SoC”。
+# 它用于Zephyr硬件模型发现，不负责配置引脚或启用应用功能。
+board:
+  # 板的机器可读名称，也是构建目标gt02/nrf52840的第一部分。
+  name: gt02
+  # 面向开发者显示的完整板名。
+  full_name: GT02 nRF52840
+  # 当前是工程私有板，没有向Zephyr注册厂商前缀，因此使用others。
+  vendor: others
+  # 列出该物理板可使用的SoC或SoC变体。
+  socs:
+    # 构建目标gt02/nrf52840的第二部分，选择Zephyr已有的nRF52840 SoC。
+    - name: nrf52840

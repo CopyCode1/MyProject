@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="用六个可操作的小实验，理解AT事务、URC、二进制、多连接调度、分层与超时恢复。离线单文件中文教程。">
+  <title>4G通信设计交互实验室 · GT02</title>
+  <style>
+    :root{--paper:#f5f5ef;--surface:#fff;--ink:#202c2c;--muted:#65716c;--line:#dce1d7;--green:#146554;--mint:#e7f2e9;--amber:#9b5a16;--sand:#fff3df;--red:#ac4539;--rose:#fff0eb;--dark:#172b2a;--blue:#3566a2;--violet:#7960a2;--r:16px}
+    *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;font-size:14px;line-height:1.65}button,select{font:inherit}button,a,select{-webkit-tap-highlight-color:transparent}button{cursor:pointer}button:disabled{cursor:default;opacity:.45}button:focus-visible,a:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid #d19744;outline-offset:4px}button{color:inherit}a{color:var(--green);text-underline-offset:3px}h1,h2,h3,p{margin:0}code,.mono{font-family:Consolas,"SFMono-Regular",monospace}button svg{width:17px;height:17px;vertical-align:-3px}button span+svg{margin-left:8px}
+    .shell{display:grid;grid-template-columns:224px minmax(0,1fr);min-height:100vh}.sidebar{position:sticky;top:0;height:100vh;padding:32px 18px 24px 24px;border-right:1px solid var(--line);display:flex;flex-direction:column;background:#f0f1e9}.brand{display:flex;align-items:center;gap:10px;margin-bottom:36px}.mark{display:grid;place-items:center;width:38px;height:38px;background:var(--green);border-radius:11px;color:#fff}.brand strong{font-size:16px;letter-spacing:.5px}.brand small{display:block;color:var(--muted);font-size:10px;letter-spacing:1.8px}.eyebrow{font-size:10px;letter-spacing:2px;font-weight:700;color:var(--muted);text-transform:uppercase}.sidebar .eyebrow{margin-left:12px;margin-bottom:12px}.lesson-nav{display:grid;gap:6px}.nav-item{width:100%;border:0;background:transparent;display:flex;align-items:center;gap:11px;text-align:left;padding:12px 10px;border-radius:10px}.nav-item:hover{background:#e4e9dc}.nav-item[aria-current="page"]{background:var(--green);color:#fff}.nav-num{font:12px Consolas,monospace;opacity:.65;width:22px}.nav-title{font-size:13px;font-weight:600}.nav-sub{display:block;font-size:10px;opacity:.7;font-weight:400;margin-top:2px}.nav-done{margin-left:auto;font-size:12px}.sidebar-bottom{margin-top:auto;padding:24px 10px 0;font-size:11px;color:var(--muted)}.reading-progress{height:4px;background:#d7decf;border-radius:8px;overflow:hidden;margin:8px 0}.reading-progress>span{height:100%;display:block;background:var(--green);transition:width .25s}.sidebar-bottom a{display:block;margin-top:16px}.sidebar-bottom p{margin-top:8px}
+    main{min-width:0;padding:0 42px 24px;max-width:1510px;width:100%;margin:auto}.topbar{min-height:70px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:11px;color:var(--muted)}.live-dot{display:inline-block;width:6px;height:6px;background:var(--green);border-radius:50%;margin-right:7px}.topbar a{text-decoration:none;color:var(--muted)}.hero{padding:26px 0 24px;display:flex;justify-content:space-between;gap:24px;align-items:center}.hero h1{font-size:clamp(24px,2.7vw,36px);letter-spacing:-1px;line-height:1.35;font-weight:650}.hero p{color:var(--muted);font-size:13px;margin-top:9px}.hero-tag{font:11px Consolas,monospace;border:1px solid var(--line);padding:8px 12px;border-radius:30px;white-space:nowrap;color:var(--green)}.lesson-head{display:flex;align-items:flex-start;gap:15px;margin-bottom:18px}.chapter{font:26px Consolas,monospace;color:var(--green);line-height:1.2;padding-top:3px}.lesson-head h2{font-size:21px;letter-spacing:-.4px}.lesson-head p{font-size:13px;color:var(--muted);margin-top:3px}.workspace{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;box-shadow:0 7px 24px #23382b04}.experiment-top{padding:16px 22px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.experiment-top strong{font-size:12px}.tiny{font-size:11px;color:var(--muted)}.badge{display:inline-flex;gap:6px;align-items:center;font-size:10px;border:1px solid var(--line);border-radius:20px;padding:3px 9px;color:var(--muted)}.badge.green{color:var(--green);border-color:#c6dfd0;background:var(--mint)}select{background:#fff;border:1px solid var(--line);border-radius:7px;padding:6px 10px;max-width:100%;font-size:12px}.stage{padding:22px;min-height:330px}.stage-layout{display:grid;grid-template-columns:minmax(0,1fr) 242px;gap:24px}.board{min-width:0}.explain{border-left:1px solid var(--line);padding-left:22px;display:flex;flex-direction:column;gap:20px}.explain h3{font-size:11px;color:var(--muted);font-weight:500;margin-bottom:6px}.explain strong{font-size:17px;font-weight:600;line-height:1.5;display:block;overflow-wrap:anywhere}.explain p{font-size:12px;color:var(--muted);margin-top:6px}.success{color:var(--green)!important}.danger{color:var(--red)!important}.warm{color:var(--amber)!important}.note{padding:11px 13px;border-radius:9px;background:var(--mint);color:var(--green);font-size:12px;line-height:1.7;margin-top:14px;overflow-wrap:anywhere}.note.warn{background:var(--sand);color:var(--amber)}.note.error{background:var(--rose);color:var(--red)}.note strong{font-weight:650}.route{display:flex;gap:8px;align-items:stretch;margin:3px 0 18px}.node{flex:1;background:#f4f6f0;border:1px solid var(--line);padding:14px 10px;border-radius:10px;text-align:center;min-width:0}.node strong{font-size:13px;display:block}.node small{font-size:10px;color:var(--muted);display:block;margin-top:3px}.node.active{background:var(--mint);border-color:#6cae8d;box-shadow:0 0 0 2px #1465540a}.arrow{align-self:center;color:#9da99d;font-size:18px}.terminal{border-radius:11px;background:var(--dark);color:#e5eee5;overflow:hidden}.terminal-head{border-bottom:1px solid #ffffff12;padding:9px 13px;font-size:10px;letter-spacing:.7px;color:#adc4b8;display:flex;justify-content:space-between}.terminal-head i{display:inline-block;width:5px;height:5px;margin-right:4px;border-radius:50%;background:#64887b}.terminal-body{padding:12px 14px;min-height:134px;font:12px/1.9 Consolas,"Microsoft YaHei",monospace;overflow-wrap:anywhere}.log-line{display:flex;gap:13px}.log-line .time{color:#93afa0;flex-shrink:0}.log-line .tx{color:#d6b573}.log-line .rx{color:#a9dbb4}.log-line .event{color:#c3b6ec}.log-line.dim{color:#a1b9aa}.terminal-body .waiting{color:#9cb5a6}.controls{border-top:1px solid var(--line);background:#fbfcf9;padding:14px 22px;display:flex;gap:10px;align-items:center}.btn{border:1px solid var(--line);background:#fff;padding:8px 13px;border-radius:8px;font-size:12px;white-space:nowrap}.btn:hover:not(:disabled){border-color:#91ae99;background:#f4f8f1}.btn.primary{background:var(--green);color:#fff;border-color:var(--green)}.btn.primary:hover:not(:disabled){background:#0b5143}.btn.icon{padding:8px 10px}.step-meter{margin-right:auto;min-width:125px}.step-meter p{font-size:11px;color:var(--muted);margin-bottom:5px}.step-track{height:3px;background:var(--line);width:125px;border-radius:5px}.step-track span{height:100%;display:block;background:var(--green);border-radius:5px;transition:width .2s}.current-note{font-size:12px;margin-top:13px;color:var(--muted);min-height:20px}.current-note b{font-weight:600;color:var(--ink)}.decision{margin-top:18px;background:#eceee5;border-radius:12px;padding:17px 20px}.decision-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}.decision-head h3{font-size:12px}.decision-head span{font-size:10px;color:var(--muted)}.choices{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:11px}.choice{background:#fff8;border:1px solid #d1d9cb;border-radius:7px;padding:7px 11px;font-size:11px}.choice[aria-pressed="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}.decision-copy{font-size:12px;line-height:1.8;color:#4a594d;min-height:42px}.takeaway{display:flex;align-items:flex-start;gap:12px;padding:21px 0 17px}.takeaway .number{color:var(--green);font:15px Consolas,monospace;padding-top:2px}.takeaway strong{font-size:14px}.takeaway p{font-size:11px;color:var(--muted);margin-top:4px}.bottom-nav{border-top:1px solid var(--line);padding-top:16px;display:flex;justify-content:space-between;gap:12px;align-items:center}.bottom-nav a{font-size:11px}.bottom-nav .btn{font-size:11px}.footer{font-size:10px;color:var(--muted);display:flex;justify-content:space-between;gap:15px;padding-top:22px}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+    .mini-sessions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}.session{border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-size:11px}.session b{display:block;font-size:12px}.session.off{border-color:#e1bcb2;background:var(--rose)}.session.on{background:#f0f7f0}.byte-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:5px;margin:20px 0}.byte{border:1px dashed #ccd7cb;border-radius:8px;text-align:center;padding:13px 0;background:#f7f8f4;opacity:.45}.byte b{font:17px Consolas,monospace;display:block}.byte small{font-size:9px;display:block;margin-top:5px}.byte.seen{opacity:1;background:var(--mint);border:1px solid #a8cbb4;color:var(--green)}.mode-line{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11px;margin-bottom:12px}.mode-pill{border:1px solid var(--line);padding:4px 9px;border-radius:20px;color:var(--muted)}.mode-pill.active{color:var(--green);border-color:#8bb59a;background:var(--mint)}.payload-result{padding:13px 14px;background:#f4f6f0;border-radius:8px;font-size:12px}.payload-result code{display:block;font-size:13px;margin-top:4px;overflow-wrap:anywhere}.lane{display:flex;gap:9px;align-items:center;padding:11px 0;border-bottom:1px solid #e8ece3}.lane:last-of-type{border-bottom:0}.channel{width:58px;font-size:11px;flex-shrink:0}.channel b{font-size:12px}.channel i{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:5px}.c0{--ch:var(--green)}.c1{--ch:var(--amber)}.c2{--ch:var(--violet)}.c3{--ch:var(--blue)}.channel i{background:var(--ch)}.queue{min-width:0;display:flex;gap:5px;flex:1;flex-wrap:wrap;min-height:30px;align-items:center}.packet{font:11px Consolas,monospace;border-radius:5px;padding:5px 7px;background:color-mix(in srgb,var(--ch) 10%,white);border:1px solid color-mix(in srgb,var(--ch) 30%,white);color:var(--ch)}.empty{font-size:10px;color:#8c998c}.lane .btn{font-size:10px;padding:5px 9px}.bus{background:var(--dark);color:#ecf3eb;border-radius:9px;padding:14px 16px;margin-top:14px}.bus small{font-size:10px;color:#a6c1b1;display:block}.bus strong{display:block;font-size:14px;margin:4px 0 8px}.phases{display:flex;gap:5px;flex-wrap:wrap}.phases span{font-size:10px;color:#a5bbad;border:1px solid #ffffff22;border-radius:4px;padding:3px 7px}.phases .active{color:#fff;background:#ffffff20;border-color:#9fbaa8}.history{display:flex;gap:4px;flex-wrap:wrap;margin-top:8px;min-height:29px}.small-label{font-size:10px;color:var(--muted);margin-top:13px}.sim-actions{display:flex;gap:7px;margin-bottom:11px;flex-wrap:wrap}.layers{display:grid;gap:6px}.layer{display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left;width:100%;border:1px solid var(--line);background:#f6f8f2;border-radius:8px;padding:10px 13px}.layer b{font-size:12px}.layer small{font-size:10px;color:var(--muted)}.layer.active{border-color:#60a27f;background:var(--mint)}.layer.changed{border-color:#cba15c;background:var(--sand)}.layer .flow-tag{font:10px Consolas,monospace;color:var(--green)}.layer.changed .flow-tag{color:var(--amber)}.segmented{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:13px}.segmented button{font-size:11px;border-radius:6px;border:1px solid var(--line);background:#fff;padding:6px 9px}.segmented button[aria-pressed="true"]{background:var(--mint);border-color:#7eaf91;color:var(--green)}details{margin-top:16px;border-top:1px solid var(--line);padding-top:12px}summary{cursor:pointer;font-size:12px;color:var(--green);width:fit-content}.power-controls{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}.power-controls button{font-size:10px;padding:6px 9px;border:1px solid var(--line);border-radius:6px;background:#fff}.power-controls button[aria-pressed="true"]{background:var(--green);border-color:var(--green);color:#fff}.power-rule{margin-top:10px;font-size:11px;color:var(--muted)}.timeline{display:grid;gap:8px}.moment{display:grid;grid-template-columns:36px 1fr;gap:8px;border:1px solid var(--line);border-radius:8px;padding:10px 12px;color:#879185;background:#f8f9f5;font-size:12px}.moment.seen{color:var(--ink);background:#f0f6ef;border-color:#cadbcb}.moment.now{border-color:var(--green)}.moment.bad{color:var(--red);background:var(--rose);border-color:#dcb9ac}.moment .tick{font:11px Consolas,monospace;color:var(--muted);padding-top:2px}.moment strong{font-size:12px}.moment p{font-size:10px;margin-top:2px;color:var(--muted)}.observe{transition:background .2s}.keyboard{font:10px Consolas,monospace}
+    .brand small{font-size:9px;letter-spacing:1px;white-space:nowrap}
+    @media(min-width:1550px){.hero{padding-top:34px;padding-bottom:32px}.stage{min-height:360px;padding:28px}.stage-layout{gap:30px}.terminal-body{min-height:155px}}
+    @media(max-width:1150px){main{padding:0 24px 20px}.sidebar{padding-left:16px}.shell{grid-template-columns:200px minmax(0,1fr)}.stage-layout{grid-template-columns:minmax(0,1fr) 200px;gap:17px}.explain{padding-left:17px}.controls{gap:7px}.stage{padding:18px}}
+    @media(max-width:930px){.shell{grid-template-columns:175px minmax(0,1fr)}.sidebar{padding:24px 10px 20px}.brand{padding-left:5px}.brand strong{font-size:14px}.nav-item{gap:5px;padding:11px 8px}.nav-title{font-size:12px}.nav-sub{font-size:9px}.hero-tag{display:none}.stage-layout{grid-template-columns:1fr}.explain{border-left:0;border-top:1px solid var(--line);padding:15px 0 0;display:grid;grid-template-columns:1fr 1fr;gap:16px}.explain>div:last-child{grid-column:1/-1}.explain strong{font-size:15px}.stage{min-height:0}.hero h1{font-size:27px}.controls{flex-wrap:wrap}.step-meter{min-width:110px}.step-track{width:100px}}
+    @media(max-width:620px){.shell{display:block}.sidebar{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line);padding:16px}.brand{margin-bottom:15px}.sidebar>.eyebrow,.sidebar-bottom{display:none}.lesson-nav{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}.nav-item{padding:9px 7px;gap:5px}.nav-num{width:18px;font-size:10px}.nav-title{font-size:11px}.nav-sub,.nav-done{display:none}main{padding:0 16px 22px}.topbar{min-height:49px;font-size:10px}.topbar .long{display:none}.hero{padding:21px 0}.hero h1{font-size:25px;letter-spacing:-.8px}.hero p{font-size:11px}.chapter{font-size:23px}.lesson-head{gap:10px}.lesson-head h2{font-size:18px}.lesson-head p{font-size:11px}.experiment-top{padding:12px 14px;gap:8px}.experiment-top strong{font-size:11px}.stage{padding:15px}.route{gap:5px}.node{padding:12px 7px}.node strong{font-size:11px}.node small{font-size:9px}.arrow{font-size:14px}.terminal-body{font-size:11px;padding:11px}.log-line{gap:8px}.controls{padding:12px 14px;gap:7px}.controls .btn{font-size:11px;padding:7px 9px}.step-meter{width:100%;margin-bottom:2px}.step-meter p{display:inline;margin-right:10px}.step-track{display:inline-block;vertical-align:middle;width:90px}.explain{grid-template-columns:1fr 1fr}.explain strong{font-size:14px}.explain p{font-size:11px}.byte-grid{grid-template-columns:repeat(4,1fr);margin:15px 0}.byte{padding:9px 0}.byte b{font-size:16px}.decision{padding:15px}.decision-head{align-items:flex-start}.decision-head span{max-width:100px;text-align:right}.choice{font-size:10px;padding:6px 8px}.decision-copy{font-size:11px}.bottom-nav{align-items:flex-start}.bottom-nav a{max-width:52%;font-size:10px}.footer{font-size:9px}.queue{gap:4px}.packet{font-size:10px;padding:4px 5px}.channel{width:50px}.layer{padding:10px}.layer small{font-size:9px}.layer b{font-size:11px}}
+    @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+    @media print{.sidebar,.topbar,.controls,.bottom-nav,.footer,.decision{display:none}.shell{display:block}main{max-width:100%;padding:0}.workspace{break-inside:avoid}.terminal{background:#eee;color:#111}.terminal-body .time,.terminal-body .tx,.terminal-body .rx,.terminal-body .event{color:#333}.hero{padding-top:0}}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar" aria-label="课程导航">
+      <div class="brand"><div class="mark" aria-hidden="true"><svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 16h3v4H4zM10 10h3v10h-3zM16 4h3v16h-3z"/></svg></div><div><strong>GT02 / LAB</strong><small>DESIGN THROUGH PLAY</small></div></div>
+      <div class="eyebrow">六个小实验 / 六个直觉</div>
+      <nav class="lesson-nav" id="lesson-nav"></nav>
+      <div class="sidebar-bottom"><span id="visit-label">已探索 0 / 6 个实验</span><div class="reading-progress"><span id="visit-progress"></span></div><p>点一下，观察变化。<br>不用一次记住所有术语。</p><a href="4G通信从AT到多连接的心智模型与设计取舍教程.md">需要细节时，回到完整教程 ↗</a><p class="keyboard">← → 单步 · 空格 播放/暂停</p></div>
+    </aside>
+    <main id="main">
+      <header class="topbar"><span><i class="live-dot"></i>通信设计实验室 <span class="long">/ 从感性认知开始</span></span><span>离线可用 · 教学模拟 <a href="文档索引.md" aria-label="返回项目文档索引"> / 文档索引 ↗</a></span></header>
+      <div class="hero"><div><h1>先看见数据流，<br>再理解分层。</h1><p>不用先读完长文。点击「下一步」，看每个设计为什么出现。</p></div><span class="hero-tag">01 UART · 04 CHANNELS · 01 OWNER</span></div>
+      <section aria-labelledby="lesson-title">
+        <div class="lesson-head"><span class="chapter" id="chapter"></span><div><h2 id="lesson-title"></h2><p id="lesson-intro"></p></div></div>
+        <div class="workspace">
+          <div class="experiment-top"><strong id="experiment-name"></strong><div id="experiment-options"></div></div>
+          <div class="stage" id="stage"></div>
+          <div class="controls">
+            <div class="step-meter"><p id="step-label"></p><div class="step-track"><span id="step-progress"></span></div></div>
+            <button class="btn icon" id="reset-btn" title="重置当前实验">↺ 重置</button>
+            <button class="btn" id="back-btn">上一步</button>
+            <button class="btn" id="play-btn">▶ 自动演示</button>
+            <button class="btn primary" id="next-btn">下一步 →</button>
+          </div>
+        </div>
+        <p class="current-note" id="current-note" role="status" aria-live="polite"></p>
+        <section class="decision" aria-labelledby="decision-title"><div class="decision-head"><h3 id="decision-title">换一种设计，会怎样？</h3><span>选择方案，重新观察实验</span></div><div class="choices" id="choices"></div><p class="decision-copy" id="decision-copy"></p></section>
+        <div class="takeaway"><span class="number">↳</span><div><strong id="takeaway"></strong><p id="takeaway-sub"></p></div></div>
+        <div class="bottom-nav"><a id="chapter-link" href="4G通信从AT到多连接的心智模型与设计取舍教程.md">深入阅读对应章节 ↗</a><button class="btn" id="next-lesson">继续下一个实验 →</button></div>
+      </section>
+      <footer class="footer"><span>GT02 · 2026-10-29 · 当前仅重建硬件底座；本页演示目标机制。</span><span>无真实串口连接</span></footer>
+      <noscript><p class="note warn">请启用浏览器JavaScript以运行交互实验。本文件不需要网络或插件。</p></noscript>
+    </main>
+  </div>
+  <script>
+  'use strict';
+  // 教学模拟：所有事件和载荷都在本页生成，不调用真实串口、模组或固件接口。
+  const LESSONS = [
+    {title:'一句指令，一次事务',sub:'从 AT 到 OK',intro:'收到字节、收到数据、操作成功，是三件不同的事。',name:'实验 01 / 看一次问答怎样结束',take:'事务 = 我在等谁 + 什么算完成 + 最晚等到什么时候。',extra:'信号量只负责叫醒；醒来之后，仍要检查结果。',chapters:'第1～4章',choices:['结果＋通知（推荐）','固定延时就算成功','有数据就算成功'],copies:['为当前请求保存结果，按协议确认完成后再通知。查询还必须有有效的数据行。实现稍多，但不会把“收到点东西”误报为成功。','少写等待逻辑，但时间到了不代表对方成功。切换“ERROR”或“缺少数据”输入，观察它为什么只是猜测。','看起来反应最快，但一半字符、回显、URC都可能是“有数据”。切换CPIN查询，看到READY也应继续等最终结果。']},
+    {title:'等回复时，别的事发生了',sub:'URC 与异步事件',intro:'查信号的同时，一条TCP连接被关闭。两件事都要被正确处理。',name:'实验 02 / 把交错内容交给正确的人',take:'一个解析入口，分发给不同的结果和状态所有者。',extra:'URC是主动通知；查询的数据行也常以“+”开头，不能只看第一个字符。',chapters:'第5～6、10章',choices:['按语法与上下文分流（推荐）','全部塞进当前回复','等待时忽略URC'],copies:['当前查询的数据进事务槽，连接事件先转换成统一含义再交给服务。多一点上下文判断，换来清楚的归属。','实现直观，但连接关闭混进信号查询；没有查询时，事件还会无处可去。它不能建立可信的连接状态。','正常查询可能仍能成功，但连接表已经与真实世界不同。后续还可能向已关闭的连接发送。']},
+    {title:'同样的 OK，可能只是数据',sub:'文本与二进制',intro:'给解析器8个任意字节。里面有换行、OK、提示符和NUL。',name:'实验 03 / 按长度接收，原样还原',take:'先看当前解析模式，再解释字节的含义。',extra:'定长载荷中的CR/LF、OK和“>”都只是数据；文本模式才解释控制语法。',chapters:'第7～8章',choices:['长度驱动模式（推荐）','所有内容按行解析','所有内容当C字符串'],copies:['先完整消费头部的CRLF，再取恰好N字节。支持任意二进制，但要检查长度、缓冲容量、模式切换和截断。','只适合受约束的文本。载荷里的换行被切走，控制与业务数据也混进同一解释路径。更不能只搜索OK就判断成功；模组的一块载荷也不等于完整业务报文。','%s等字符串操作遇到00便结束。这里的第一个字节就是00，8字节载荷会被误看成空内容。长度和字符串结尾不是一回事。']},
+    {title:'四条连接，一个 AT 入口',sub:'缓存与调度',intro:'给每路提交任务，再逐步放行。看看谁在排队、谁拥有发送权。',name:'实验 04 / 亲手调度四条逻辑连接',take:'四份独立会话，共用一个受控的协议通道。',extra:'每次只执行一个不可穿插的发送阶段。轮转是按任务公平，未必等于按字节或时间公平。',chapters:'第9、11～15章',choices:['各路FIFO＋轮转（推荐）','所有请求一个FIFO','严格优先级'],copies:['按通道轮流获得一次机会，并保持各路自己的顺序。适合第一版多连接。控制操作也应有机会；真有紧急需求再增加权重和饥饿保护。','顺序直观，但先提交大量任务的一路会堵住后来的短消息。重置后看通道0连续占用；已经发出的载荷仍不可抢占。','本页顺序为1→2→0→3。高优先级响应快，但若持续给1路加任务，3路可能长期等待。产品中需要配额、老化或其他饥饿保护。']},
+    {title:'让变化停在该停的地方',sub:'分层与控制权',intro:'发送请求向下走，结果事件向上走。换硬件时，观察哪些地方应改变。',name:'实验 05 / 沿着一次请求追踪职责',take:'服务决定何时做，后端知道怎么做，硬件层执行字节和电平。',extra:'层级是职责，不等于线程数量。共用AT核心是目标边界，当前代码尚未全部拆出。',chapters:'第15～17章',choices:['按变化原因隔离（推荐）','所有逻辑放在一起','每个函数多包一层'],copies:['平台报文、策略、厂商语法、字节与引脚各有归属。切换“换PCB/换模组/换平台”看主要影响；能力变化仍可能需要调整服务和验收。','最初跑一个AT最快，但换模组、改引脚、改平台都碰同一份代码。动画可以一样，变化范围却会失控。','包装数量增加，不代表依赖变稳定。如果每层都只是同名转调，定位和维护成本反而更高；应保留有真实职责的边界。']},
+    {title:'超时以后，旧回复还会来',sub:'迟到与恢复',intro:'A已超时，随后到达一个没有编号的OK。它到底属于谁？',name:'实验 06 / 看一次错误关联怎样发生',take:'超时是“我不再等”，不是“对方没有执行”。',extra:'request_id只能标识本地请求；它不会自动出现在模组发来的OK里。',chapters:'第13、16章',choices:['暂停新事务，可信恢复（推荐）','立即发送下一条','清空缓存后继续'],copies:['标记不确定/失同步，先恢复可信边界，再开始B。本页把“已验证恢复完成”作为教学条件；具体取消、同步或复位过程必须按模组实现。','表面恢复很快，但A的迟到OK会被误当成B成功。重置后单步到t3，看错误怎样出现。','清空的只是当时已有的字节，不能清空对方未来才发的回复。任意延时或再发AT等OK，也不是普遍可靠的同步屏障。']}
+  ];
+  const $ = id => document.getElementById(id);
+  const escapeHTML = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const model = {lesson:0,step:0,scheme:0,scenario:'at',visited:new Set(),layer:null,change:'none',demand:[true,true,false,false],powerOpen:false,queue:null};
+  let timer = null;
+  const notes = ['先按「下一步」，观察同一段字节是怎样被解释的。','每条连接的状态由服务持有；解析回调只解释并报告事实。','教学头部 +DATA 和后续URC为虚构语法，不是NT26可直接执行的命令。','目标设计模拟；实物最大连接数、指令顺序及长度限制仍须核对。','此图展示目标边界；更换能力不同的模组仍需要调整和验证。','本地编号和会话代次，不能凭空辨认线上没有身份的迟到回复。'];
+
+  // 每个步骤都是确定性快照；切换方案不会修改其他课程状态。
+  function atFrames(){
+    if(model.scenario==='at') return [
+      ['空闲','尚无命令','等待开始'],['准备完成','TX: AT\\r\\n','已先登记本次结果和等待条件'],['等待完整行','RX: \\r\\nO','只有半个OK，继续接收'],['收到最终响应','RX: K\\r\\n','现在才得到一条完整OK'],['正常结束','结果交给调用者','唤醒后检查结果；本次AT成功']
+    ];
+    const missing=model.scenario==='missing', error=model.scenario==='error';
+    return [
+      ['空闲','尚无命令','准备进行一次SIM查询'],['等待数据和终态','TX: AT+CPIN?\\r\\n','先建立事务，再发送命令'],
+      ['正在积攒',missing?'RX: \\r\\n':'RX: \\r\\n+CP',missing?'只有空行，没有查询数据':'这还不是完整数据行'],
+      ['继续接收',missing?'RX: （没有CPIN数据行）':'RX: IN: READY\\r\\n',missing?'不能凭空得到SIM状态':'保存SIM=READY，仍不能宣布整次查询成功'],
+      ['等待最终响应','当前事务仍在等待','数据行不是命令结束响应'],
+      ['收到终态',error?'RX: ERROR\\r\\n':'RX: OK\\r\\n',error?'数据虽出现，最终ERROR仍代表本次查询失败':missing?'只有OK，缺少必需查询数据':'数据有效＋最终OK，本次查询条件满足'],
+      ['查询结束','结果交给服务',error?'返回失败，不把READY数据当成功':missing?'报告缺数据，不猜测SIM就绪':'向服务提供本次有效状态']
+    ];
+  }
+  function limit(){return [atFrames().length-1,5,7,0,7,5][model.lesson];}
+  function node(title,sub,active=false){return `<div class="node${active?' active':''}"><strong>${title}</strong><small>${sub}</small></div>`;}
+  function note(text,tone=''){return `<div class="note ${tone}">${text}</div>`;}
+  function terminal(lines,title='UART / 字节流'){return `<div class="terminal"><div class="terminal-head"><span><i></i><i></i><i></i> ${title}</span><span>SIMULATION</span></div><div class="terminal-body">${lines.length?lines.map((line,i)=>`<div class="log-line"><span class="time">${String(i).padStart(2,'0')}</span><span class="${line[0]}">${escapeHTML(line[1])}</span></div>`).join(''):'<span class="waiting">等待输入 …</span>'}</div></div>`;}
+  function aside(items){return `<aside class="explain" aria-label="观察与解释">${items.map(([label,value,description,tone])=>`<div><h3>${label}</h3><strong class="${tone||''}">${value}</strong><p>${description}</p></div>`).join('')}</aside>`;}
+  function layout(board,items){return `<div class="stage-layout"><div class="board">${board}</div>${aside(items)}</div>`;}
+
+  function renderAT(){
+    const s=model.step, f=atFrames(),query=model.scenario!=='at', final=s>=f.length-2;
+    let result=s===0?'未开始':'等待中',tone='',detail='没有结束响应，就没有可信的本次完成。';
+    if(final){
+      if(model.scenario==='missing'){result='缺数据 / 失败';tone='danger';detail='OK只能证明命令结束，不能补出丢失的SIM状态。';}
+      else if(model.scenario==='error'){result='明确失败';tone='danger';detail='最终ERROR优先，本次查询不能成功。';}
+      else{result='成功';tone='success';detail='当前所需数据和最终响应均满足契约。';}
+    }
+    if(model.scheme===1&&s>=3){result='凭延时猜成功';tone='danger';detail='教学中的固定等待点已到，但它没有验证对方结果。正常输入碰巧正确，不代表方案可靠。';}
+    if(model.scheme===2&&s>=2){result='过早宣布成功';tone='danger';detail='半条文本也是数据，收到字节不能直接完成事务。';}
+    const lines=f.slice(1,s+1).map(x=>[x[1].startsWith('TX:')?'tx':x[1].startsWith('RX:')?'rx':'dim',x[1]]);
+    const board=`<div class="route">${node('调用者',query?'查询SIM':'确认AT通信',s===1||s===f.length-1)}<span class="arrow">⇄</span>${node('事务记录',result,s>0&&s<f.length-1)}<span class="arrow">⇄</span>${node('4G模组','独立运行的另一端',s>=2&&s<f.length-1)}</div>${terminal(lines)}${note(escapeHTML(f[s][2]),tone==='danger'?'error':'')}`;
+    return layout(board,[['当前在等什么',s===0?'一次请求':query&&!final?'查询数据＋终态':!final?'完整的OK':'本次结果已产生','先把等待条件登记好，再发命令。'],['对调用者的结果',result,detail,tone],['这一步的直觉','字节 ≠ 完成','切换上方输入，可比较AT、正常查询、缺数据和最终ERROR。']]);
+  }
+  function renderURC(){
+    const s=model.step, bad=model.scheme!==0, closed=s>=2, queryDone=s>=5;
+    const lines=[['tx','TX: AT+CSQ'],['event','RX: +PEER_CLOSED: 2'],['rx','RX: +CSQ: 18,0'],['rx','RX: OK'],['dim','结束当前信号查询']].slice(0,s);
+    const captions=['先查询信号，暂时没有别的事件。','当前只等待CSQ查询，但接收器仍处理所有合法输入。','远端关闭事件到达；这是连接2的事，不是CSQ的结果。','信号数据到达；保存到当前查询结果槽。','最终OK结束CSQ事务。连接关闭仍是独立事实。','查询完成，连接表与查询结果分别更新。'];
+    const board=`<div class="route">${node('单一解析者','识别内容和归属',s>0)}<span class="arrow">→</span>${node('事务结果槽','只保存本次CSQ',s>=3)}<span class="arrow"> / </span>${node('服务事件','更新对应连接',closed&&!bad)}</div>${terminal(lines)}<div class="mini-sessions"><div class="session on"><b>逻辑通道1 · 在线</b>没有收到它的关闭事件</div><div class="session ${closed&&!bad?'off':'on'}"><b>逻辑通道2 · ${closed&&!bad?'已离线':'仍记为在线'}</b>${closed?bad?'错误：关闭事实没有正确到达服务':'服务只更新这一条连接':'等待事件'}</div></div>`;
+    return layout(board,[['正在等待的查询',queryDone?'CSQ完成':s?'CSQ等待中':'尚未发送',queryDone?'信号查询结束，不代表TCP都正常。':'不要为了等当前回复而停止处理URC。',queryDone?'success':''],['主动事件的去向',closed?(bad?model.scheme===1?'混进CSQ文本':'被忽略':'连接2的服务事件'):'尚未到达',closed&&bad?'看似查询还能继续，但状态表已经不可信。':'教学约定：本例模组编号与逻辑通道相同，真实后端需映射。',closed&&bad?'danger':''],['观察这一刻',captions[s],'“+PEER_CLOSED”是教学语法；RDY才是当前实板已观察到的启动URC。']]);
+  }
+  function renderBinary(){
+    const s=model.step,counts=[0,0,0,0,2,5,8,8],count=counts[s],bytes=['00','0D','0A','4F','4B','3E','41','FF'],names=['NUL','CR','LF','O','K','>','A','FF'];
+    const mode=s<=1?'TEXT':s===2?'HEADER_EOL':s<=6?'RAW_PAYLOAD':'TEXT';
+    const rows=[['dim','当前解析模式：TEXT'],['rx','+DATA:2,8（教学头部）'],['rx','头部的 CR 已到，LF 还未到'],['rx','头部 LF 到齐，准备接收8字节'],['rx','PAYLOAD: 00 0D'],['rx','PAYLOAD: 0A 4F 4B'],['rx','PAYLOAD: 3E 41 FF'],['event','8字节载荷完成，按本例语法回TEXT']].slice(0,s+1);
+    const bad=(model.scheme===2&&count>0)||(model.scheme===1&&count>=3);
+    const result=model.scheme===2&&count?'被NUL截断为空字符串':model.scheme===1&&count>=3?'换行被切走，8字节载荷未原样还原':count?bytes.slice(0,count).join(' '):'尚无载荷字节';
+    const board=`<div class="mode-line"><span class="tiny">接收模式</span>${['TEXT','HEADER_EOL','RAW_PAYLOAD'].map(x=>`<span class="mode-pill ${x===mode?'active':''}">${x}</span>`).join('<span class="tiny">→</span>')}</div><div class="byte-grid">${bytes.map((b,i)=>`<div class="byte ${i<count?'seen':''}"><b>${b}</b><small>${names[i]}</small></div>`).join('')}</div><div class="payload-result"><span class="tiny">连接2的实际还原结果</span><code class="${bad?'danger':'success'}">${result}</code></div>${note(s===2?'必须等头部LF到齐，再进入载荷。不能把下一批LF误算成数据。':s>=4?(bad?'字节到达了，但错误的解释方式破坏了内容。':'高亮部分全部是载荷；即使看起来像OK，也不会完成任何AT事务。'):'点击下一步，观察头部、分隔符与载荷的切换。',bad?'error':'')}`;
+    return layout(board,[['长度账本',`${count} / 8 字节`,'长度按字节计，不按可见字符计。'],['当前解释规则',model.scheme===0?mode:model.scheme===1?'始终按行':'始终按字符串',model.scheme===0?'发送阶段与RX模式是两件事；这里演示RX解释。':'下面的输入字节未变，只换了解释规则。',bad?'danger':''],['本步原始输入',escapeHTML(rows[rows.length-1][1]),'TCP仍是字节流：收到这8字节，也不保证收到一整条产品业务报文。']]);
+  }
+
+  // 调度实验维护独立队列；一个任务的三阶段必须完整结束，才能选择下一任务。
+  function seedQueue(){
+    const q={queues:[[],[],[],[]],seq:0,current:null,phase:0,cursor:0,history:[],completed:0,ticks:0,message:'已预装7个任务。点击下一步取得本次发送权。'};
+    [0,0,0,1,2,2,3].forEach(c=>{q.queues[c].push({channel:c,id:++q.seq});});
+    return q;
+  }
+  function queueCount(){return model.queue.queues.reduce((n,q)=>n+q.length,0);}
+  function addTask(channel){
+    const q=model.queue;
+    if(q.queues[channel].length>=6){q.message=`通道${channel}队列已满：整笔拒绝新请求，已有任务保留。`;return false;}
+    q.queues[channel].push({channel,id:++q.seq});q.message=`通道${channel}接受新任务：教学模型将其视为已复制到服务自有缓存。`;return true;
+  }
+  function pickTask(){
+    const q=model.queue;let chosen=-1;
+    if(model.scheme===1){let oldest=Infinity;q.queues.forEach((list,c)=>{if(list.length&&list[0].id<oldest){oldest=list[0].id;chosen=c;}});}
+    else if(model.scheme===2)chosen=[1,2,0,3].find(c=>q.queues[c].length)??-1;
+    else for(let i=0;i<4;i++){const c=(q.cursor+i)%4;if(q.queues[c].length){chosen=c;q.cursor=(c+1)%4;break;}}
+    if(chosen<0||!q.queues[chosen].length)return null;
+    return q.queues[chosen].shift();
+  }
+  function advanceQueue(){
+    const q=model.queue;if(!q.current&&!queueCount())return;
+    q.ticks++;
+    if(!q.current){q.current=pickTask();q.phase=1;q.message=`通道${q.current.channel}取得发送权：发送SEND命令，等待提示符。`;}
+    else if(q.phase===1){q.phase=2;q.message='提示符到达，发送这一任务的完整载荷；此时不能插入别路AT。';}
+    else if(q.phase===2){q.phase=3;q.message='载荷发送完，仍等待模组规定的发送结果；发送权尚未释放。';}
+    else{q.history.push(q.current);q.completed++;if(q.history.length>40)q.history.shift();q.message=`通道${q.current.channel}本次模组发送结果成功；释放发送权，平台业务确认另行处理。`;q.current=null;q.phase=0;}
+  }
+  function renderQueue(){
+    const q=model.queue,busy=q.current;
+    const board=`<div class="sim-actions"><button class="btn" id="batch-btn">给四路各加一个任务 ＋</button><span class="tiny">每路队列最多6项 · 所有通道已在线的教学条件</span></div>${q.queues.map((list,c)=>`<div class="lane c${c}"><div class="channel"><i></i><b>通道${c}</b><br><span class="tiny">${list.length} / 6</span></div><div class="queue">${list.length?list.map(t=>`<span class="packet" title="服务已接受的任务${t.id}">#${t.id}</span>`).join(''):'<span class="empty">队列空闲</span>'}</div><button class="btn" id="add-${c}" data-add="${c}" aria-label="给通道${c}增加一个任务">＋ 入队</button></div>`).join('')}<div class="bus"><small>唯一的AT发送权 / ${['轮转','全局FIFO','严格优先级'][model.scheme]}</small><strong>${busy?`当前：通道${busy.channel} · 任务 #${busy.id}`:'当前空闲，可以选择下一项'}</strong><div class="phases">${['命令 → 等提示符','发送完整载荷','等发送结果'].map((x,i)=>`<span class="${q.phase===i+1?'active':''}">${x}</span>`).join('')}</div></div><p class="small-label">已完成顺序（颜色代表通道，非线程优先级）</p><div class="history">${q.history.length?q.history.slice(-16).map(t=>`<span class="packet c${t.channel}">${t.channel}路 #${t.id}</span>`).join(''):'<span class="empty">暂无完成任务</span>'}</div>`;
+    return layout(board,[['正在占用总线',busy?`通道${busy.channel}`:'没有任务',busy?'可以继续接收别路URC，但此发送阶段不可被另一条AT打断。':'下一步才会按照选中的规则选任务。',busy?'success':''],['剩余排队',`${queueCount()} 项`,'每路FIFO独立保存归属；所有任务共用一个执行入口。'],['正在发生',escapeHTML(q.message),model.scheme===2?'试着持续给1路加任务，观察3路等待。这是严格优先级的代价。':'可比较三种调度。每换方案会重置队列，便于公平比较。']]);
+  }
+
+  const LAYERS=[
+    ['产品应用 / 平台协议','决定上传什么、何时上传','gt02_app.c / 平台协议组件','发送业务载荷；按产品协议确认平台应答，不接触GPIO或原始AT。'],
+    ['网络服务','管理需求、状态、调度与恢复','目标：网络服务（旧实现已清理）','目标职责：汇总各路联网需求、管理公开连接状态，决定何时重连、停止或恢复。'],
+    ['厂商后端','知道该模组的命令与URC','目标：型号后端（旧实现已清理）','目标职责：把统一能力变成具体命令，解释响应、映射连接编号，并报告事实。'],
+    ['共用AT机制','等待、匹配、超时、解析模式','目标边界：当前尚未独立拆出','管理事务和回复归属，处理通知和超时；可以封装已有Zephyr处理器。'],
+    ['硬件适配 / 板级DTS','收发字节、执行控制、描述连接','gt02_modem_zephyr.c / 板级DTS','UART/GPIO执行与接线描述。具体型号上电步骤和板级执行需要清晰配合。']
+  ];
+  function renderLayers(){
+    const path=[0,1,2,3,4,3,2,1],active=model.layer===null?path[model.step]:model.layer;
+    const affected=model.scheme===1?[0,1,2,3,4]:model.scheme===2?[0,1,2,3,4]:model.change==='pcb'?[4]:model.change==='modem'?[2]:model.change==='platform'?[0]:[];
+    const captions=['应用提出发送需求，不拼接AT。','服务接收需求，选择连接和操作。','后端构造这个型号的命令与等待规则。','AT核心登记事务，再请求硬件发送。','硬件发字节、接字节；DTS说明接在哪里。','接收器识别当前回复并完成事务，不执行耗时业务。','后端把厂商结果转成统一含义。','服务校验归属、更新状态并通知上层。'];
+    const demand=model.demand.filter(Boolean).length,changing=model.change!=='none';
+    const board=`<div class="segmented" role="group" aria-label="观察变化的影响">${[['none','跟踪一次请求'],['pcb','换PCB引脚'],['modem','换4G模组'],['platform','换平台报文']].map(([v,l])=>`<button id="change-${v}" data-change="${v}" aria-pressed="${model.change===v}">${l}</button>`).join('')}</div><div class="layers">${LAYERS.map(([name,sub],i)=>`<button class="layer ${i===active?'active':''} ${changing&&affected.includes(i)?'changed':''}" id="layer-${i}" data-layer="${i}" aria-pressed="${i===active}"><span><b>${name}</b><br><small>${sub}</small></span><span class="flow-tag">${changing&&affected.includes(i)?'主要影响':i===path[model.step]?(model.step<=4?'↓ 请求':'↑ 结果'):'·'}</span></button>`).join('')}</div><details id="power-details" ${model.powerOpen?'open':''}><summary>小实验：一条连接不用了，可以直接断电吗？</summary><div class="power-controls">${model.demand.map((on,i)=>`<button id="demand-${i}" data-demand="${i}" aria-pressed="${on}">通道${i}：${on?'有需求':'无需求'}</button>`).join('')}</div><p class="power-rule">${demand}条有需求 → 服务${demand?'维持模组工作目标':'允许进入正常停止流程'} → 后端执行具体操作。<br>只演示需求汇总，不模拟关机时序；其他模组功能也可能持有需求，紧急断电由明确策略另行处理。</p></details>`;
+    return layout(board,[['当前职责',LAYERS[active][0],LAYERS[active][3]],['对应工程位置',`<span class="mono" style="font-size:12px">${LAYERS[active][2]}</span>`,'点击左侧任意一层，可以单独查看职责。'],['本步流向',captions[model.step],changing?(model.scheme===0?'黄色标出主要变更范围。同类能力不变的假设下，尽量不让差异泄漏到服务。':'当前方案难以约束影响范围：动画没变，不代表隔离成立。'):'按下一步追踪请求与结果；这是职责图，不是线程图。']]);
+  }
+  function renderTimeout(){
+    const s=model.step,safe=model.scheme===0;
+    const rows=safe?[
+      ['A开始','发出命令A，等待本次响应'],['A超时','结果不确定；标记总线状态不可信'],['B先排队','不允许B立即占用这个不可信通道'],['A的OK迟到','记录为旧交互残留，不把它交给B'],['可信恢复完成','教学条件：模组相关的恢复流程已经验证通过'],['B才开始','建立新事务；只接受可信边界之后的本次结果']
+    ]:[
+      ['A开始','发出命令A，等待本次响应'],['A超时','本地结束A，但对方未必结束'],[model.scheme===2?'清缓存后发B':'立即发B',model.scheme===2?'只清掉当前缓存，未来的回复还没来':'新事务开始等待没有编号的OK'],['A的OK迟到','线上没有A的编号，被错误当成B成功'],['产生错误结果','B可能根本没有完成，却已经通知成功'],['失去可信状态','本地request_id不能修复这种线上歧义']
+    ];
+    const board=`<div class="timeline">${rows.map(([title,sub],i)=>`<div class="moment ${i<=s?'seen':''} ${i===s?'now':''} ${!safe&&i>=3&&i<=s?'bad':''}"><span class="tick">t${i}</span><div><strong>${title}</strong><p>${sub}</p></div></div>`).join('')}</div>`;
+    return layout(board,[['B现在的状态',s<2?'尚未提交':safe?(s<5?'仍在排队':'恢复后开始'):(s<3?'等待回复':'被错误宣布成功'),safe?'恢复要有协议依据，不能用任意等一会代替。':'A的迟到OK恰好满足了B的通用匹配规则。',!safe&&s>=3?'danger':''],['线上回复','OK','没有request_id，没有会话代次。软件不能凭空读出不存在的信息。'],['服务的责任',safe?'协调恢复范围':'现在的结果不可信',safe?'若恢复需要模组复位，要处理所有受影响连接及旧任务。':'不要继续猜测成功，也不能简单把所有未知结果说成“没发送”。']]);
+  }
+
+  // DOM只使用教学常量和转义后的文本；不拉取外部脚本或保存个人数据。
+  function render(){
+    const focusId=document.activeElement&&document.activeElement.id;
+    const data=LESSONS[model.lesson];
+    $('lesson-nav').innerHTML=LESSONS.map((l,i)=>`<button class="nav-item" id="nav-${i}" data-lesson="${i}" ${i===model.lesson?'aria-current="page"':''}><span class="nav-num">0${i+1}</span><span class="nav-title">${l.sub}<small class="nav-sub">${l.title}</small></span><span class="nav-done">${model.visited.has(i)?'✓':''}</span></button>`).join('');
+    $('chapter').textContent=`0${model.lesson+1}`;$('lesson-title').textContent=data.title;$('lesson-intro').textContent=data.intro;$('experiment-name').textContent=data.name;
+    $('experiment-options').innerHTML=model.lesson===0?`<label class="tiny" for="scenario">输入场景 </label><select id="scenario">${[['at','最简单：AT → OK'],['query','查询：READY＋OK'],['missing','缺数据：只有OK'],['error','失败：READY＋ERROR']].map(([v,l])=>`<option value="${v}" ${model.scenario===v?'selected':''}>${l}</option>`).join('')}</select>`:`<span class="badge ${model.scheme===0?'green':''}">${model.scheme===0?'推荐方案':'对比方案'} · ${model.lesson===3?'可自由入队':'可单步观察'}</span>`;
+    $('stage').innerHTML=[renderAT,renderURC,renderBinary,renderQueue,renderLayers,renderTimeout][model.lesson]();
+    $('choices').innerHTML=data.choices.map((c,i)=>`<button class="choice" id="scheme-${i}" data-scheme="${i}" aria-pressed="${model.scheme===i}">${c}</button>`).join('');
+    $('decision-copy').textContent=data.copies[model.scheme];$('takeaway').textContent=data.take;$('takeaway-sub').textContent=data.extra;
+    $('current-note').innerHTML=`<b>观察提示：</b>${notes[model.lesson]}`;
+    $('chapter-link').textContent=`深入阅读：完整教程${data.chapters} ↗`;
+    const isQueue=model.lesson===3,cap=limit(),done=isQueue?!queueCount()&&!model.queue.current:model.step>=cap;
+    const q=model.queue;
+    $('step-label').textContent=isQueue?`${q.completed}项已完成 · ${queueCount()}项排队`:`步骤 ${model.step} / ${cap}`;
+    $('step-progress').style.width=`${isQueue?(q.completed/(q.completed+queueCount()+(q.current?1:0)||1))*100:model.step/cap*100}%`;
+    $('back-btn').disabled=isQueue||model.step===0;$('back-btn').title=isQueue?'队列实验按事件前进；可重置比较':'回到前一个步骤';
+    $('next-btn').disabled=done;$('next-btn').textContent=isQueue?(q.current?'推进当前发送 →':'选择下一项 →'):done?'本轮演示结束':'下一步 →';
+    $('play-btn').disabled=done;$('play-btn').textContent=timer?'Ⅱ 暂停':'▶ 自动演示';
+    $('next-lesson').textContent=model.lesson===5?'回到第一个实验 ↺':'继续下一个实验 →';
+    $('visit-label').textContent=`已探索 ${model.visited.size} / 6 个实验`;$('visit-progress').style.width=`${model.visited.size/6*100}%`;
+    if(focusId){const target=$(focusId);if(target&&!target.disabled)target.focus({preventScroll:true});}
+  }
+  function stop(){if(timer!==null){clearInterval(timer);timer=null;}}
+  function reset(){stop();model.step=0;model.layer=null;model.queue=seedQueue();render();}
+  function changeLesson(index){stop();model.lesson=index;model.step=0;model.scheme=0;model.layer=null;model.change='none';model.powerOpen=false;model.demand=[true,true,false,false];model.queue=seedQueue();render();}
+  function next(){
+    if(model.lesson===3){advanceQueue();if(!queueCount()&&!model.queue.current){model.visited.add(model.lesson);stop();}}
+    else if(model.step<limit()){model.step++;model.layer=null;if(model.step>=limit()){model.visited.add(model.lesson);stop();}}
+    render();
+  }
+  function back(){stop();if(model.lesson!==3)model.step=Math.max(0,model.step-1);model.layer=null;render();}
+  function play(){if(timer){stop();render();return;}timer=setInterval(next,1350);render();}
+  document.addEventListener('click',event=>{
+    const b=event.target.closest('button');if(!b||b.disabled)return;
+    if(b.dataset.lesson!==undefined){changeLesson(Number(b.dataset.lesson));return;}
+    if(b.dataset.scheme!==undefined){const value=Number(b.dataset.scheme);if(value!==model.scheme){model.scheme=value;reset();}return;}
+    if(b.dataset.add!==undefined){addTask(Number(b.dataset.add));render();return;}
+    if(b.dataset.change!==undefined){model.change=b.dataset.change;render();return;}
+    if(b.dataset.layer!==undefined){model.layer=Number(b.dataset.layer);render();return;}
+    if(b.dataset.demand!==undefined){const i=Number(b.dataset.demand);model.demand[i]=!model.demand[i];render();return;}
+    switch(b.id){
+      case 'next-btn':next();break;case 'back-btn':back();break;case 'reset-btn':reset();break;case 'play-btn':play();break;
+      case 'batch-btn':[0,1,2,3].forEach(addTask);render();break;
+      case 'next-lesson':changeLesson((model.lesson+1)%6);$('lesson-title').scrollIntoView({block:'start',behavior:'auto'});break;
+    }
+  });
+  document.addEventListener('change',event=>{if(event.target.id==='scenario'){model.scenario=event.target.value;reset();}});
+  document.addEventListener('toggle',event=>{if(event.target.id==='power-details')model.powerOpen=event.target.open;},true);
+  document.addEventListener('keydown',event=>{
+    if(event.altKey||event.ctrlKey||event.metaKey||event.shiftKey)return;
+    if(event.target.closest('input,select,textarea,button,a,summary,[contenteditable]'))return;
+    if(event.key==='ArrowRight'){event.preventDefault();stop();next();}
+    if(event.key==='ArrowLeft'){event.preventDefault();back();}
+    if(event.code==='Space'){event.preventDefault();if(!$('play-btn').disabled)play();}
+  });
+  document.addEventListener('visibilitychange',()=>{if(document.hidden){stop();render();}});
+  window.addEventListener('pagehide',stop);
+  model.queue=seedQueue();render();
+  </script>
+</body>
+</html>
