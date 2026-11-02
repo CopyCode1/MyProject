@@ -42,7 +42,7 @@ config GT02_MODEM_UART_RX_SIZE
 
 config GT02_MODEM_HW_TEST
 	bool "Temporary 10-second modem power-cycle and raw RX test"
-	depends on LOG
+	depends on LOG && !GT02_MODEM_AT
 	default n
 	help
 	  Start two temporary test threads after the hardware GPIO preparation.
@@ -50,6 +50,34 @@ config GT02_MODEM_HW_TEST
 	  every 10 seconds after the initial power-on completes. No AT commands
 	  or TCP. Stop on power operation or online RX failure. Disable after
 	  hardware verification; this is not a production network service.
+
+config GT02_MODEM_AT
+	bool "Table-driven asynchronous text AT core"
+	depends on LOG && MODEM_CONTEXT && MODEM_CMD_HANDLER
+	default n
+	help
+	  Use a single AT thread, a four-request FIFO, registered command/URC
+	  tables and one shared response buffer. No automatic power recovery,
+	  TCP, prompts or binary payloads. Cannot share RX with the raw test.
+
+config GT02_NETWORK_SERVICE
+	bool "Minimal one-shot modem service: power, prepare, SIM"
+	depends on GT02_MODEM_AT
+	default n
+	help
+	  Bind power/protocol operations and run a single power-on, prepare and
+	  SIM query in one service thread. No retry, recovery, PDP, TCP or TTS.
+	  Exclusive with the legacy information-query controller.
+
+config GT02_MODEM_AT_TEST
+	bool "Temporary one-shot modem information queries"
+	depends on GT02_MODEM_AT && !GT02_NETWORK_SERVICE
+	default n
+	help
+	  Power on once, then run all implemented fixed information queries
+	  sequentially after a board-specific startup delay. Preserve vendor
+	  parsing callbacks and URCs. Keep power on; no GPIO, PDP activation,
+	  TCP, automatic retry or recovery. Stop on timeout or stream loss.
 
 endif
 

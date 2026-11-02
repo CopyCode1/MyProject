@@ -239,6 +239,7 @@ static int stop_uart_locked(void)
 static int start_uart_locked(void)
 {
 	int ret;
+	int cleanup_ret;
 
 	if (!uart_initialized) {
 		/* 初始化可能在改变引脚后失败，仍需记录UART可能活动，供后续清理。 */
@@ -266,7 +267,11 @@ static int start_uart_locked(void)
 	ret = uart_irq_callback_user_data_set(uart_dev, uart_rx, NULL);
 	if (ret < 0) {
 		(void)atomic_cas(&transport_error, 0, ret);
-		(void)stop_uart_locked();
+		cleanup_ret = stop_uart_locked();
+		if (cleanup_ret < 0) {
+			LOG_ERR("UART start cleanup failed: error=%d; original error=%d",
+				cleanup_ret, ret);
+		}
 		return ret;
 	}
 	reset_rx();
@@ -348,52 +353,64 @@ out:
 	return ret;
 }
 
-/* 先启用UART接收，再执行供电/PWRKEY步骤；不等待RDY、OK或网络就绪。 */
+/* 先启用UART接收，再执行供电/PWRKEY步骤；失败统一收尾并保留原始错误。
+ * 不等待RDY、OK或网络就绪，停机清理失败单独记录。
+ */
 int gt02_modem_hw_power_on(void)
 {
 	int ret;
+	int cleanup_ret;
 	bool rx_started = false;
 
 	k_mutex_lock(&control_lock, K_FOREVER);
 	if (!prepared) {
 		ret = -EACCES;
-	} else if (atomic_get(&io_ready)) {
+		goto out;
+	}
+	if (atomic_get(&io_ready)) {
 		ret = io_status();
-	} else if (supply_enabled || atomic_get(&uart_active)) {
+		goto out;
+	}
+	if (supply_enabled || atomic_get(&uart_active)) {
 		/* 不对部分上电的硬件盲目再打一遍脉冲，先显式下电处理。 */
 		ret = (int)atomic_get(&transport_error);
 		if (ret == 0) {
 			ret = -EALREADY;
 		}
-	} else {
-		atomic_set(&power_stage, POWER_UART_START);
-		ret = start_uart_locked();
-		if (ret < 0) {
-			LOG_ERR("power_on failed: UART start error=%d", ret);
-		}
-		if (ret == 0) {
-			rx_started = true;
-			ret = board_power_on_locked();
-			if (ret < 0) {
-				LOG_ERR("power_on failed: GPIO/power sequence error=%d, stage=%d",
-					ret, (int)atomic_get(&power_stage));
-			}
-			if (ret == 0) {
-				/* 检查上电期间是否发生接收故障。 */
-				ret = io_status();
-				if (ret < 0) {
-					LOG_ERR("power_on failed: RX/transport error=%d after power sequence", ret);
-				}
-			}
-			if (ret < 0) {
-				/* 保留首个错误并停收，避免留下错误的就绪状态。 */
-				(void)atomic_cas(&transport_error, 0, ret);
-				(void)stop_uart_locked();
-			} else {
-				atomic_set(&power_stage, POWER_ACTIVE);
-			}
-		}
+		goto out;
 	}
+
+	atomic_set(&power_stage, POWER_UART_START);
+	ret = start_uart_locked();
+	if (ret < 0) {
+		LOG_ERR("power_on failed: UART start error=%d", ret);
+		goto out;
+	}
+	/* 从UART成功启用起，所有板级启动失败都经过同一个停收路径。 */
+	rx_started = true;
+	ret = board_power_on_locked();
+	if (ret < 0) {
+		LOG_ERR("power_on failed: GPIO/power sequence error=%d, stage=%d",
+			ret, (int)atomic_get(&power_stage));
+		goto failed;
+	}
+	ret = io_status();
+	if (ret < 0) {
+		LOG_ERR("power_on failed: RX/transport error=%d after power sequence", ret);
+		goto failed;
+	}
+	atomic_set(&power_stage, POWER_ACTIVE);
+	goto out;
+
+failed:
+	/* 锁存首个错误并停收，保持实际供电记录；清理失败不覆盖本次失败原因。 */
+	(void)atomic_cas(&transport_error, 0, ret);
+	cleanup_ret = stop_uart_locked();
+	if (cleanup_ret < 0) {
+		LOG_ERR("power_on cleanup failed: UART stop error=%d; original error=%d",
+			cleanup_ret, ret);
+	}
+out:
 	if (rx_started) {
 		report_pre_supply_input();
 	}
@@ -510,3 +527,15 @@ int gt02_modem_hw_write(const uint8_t *buffer, size_t length, size_t *written)
 	k_mutex_unlock(&control_lock);
 	return ret;
 }
+
+/* 装配时只注入调用者需要的能力；绑定不改变五个原始操作及其硬件时序。 */
+const struct gt02_modem_power_ops gt02_modem_zephyr_power = {
+	.init = gt02_modem_hw_init,
+	.power_on = gt02_modem_hw_power_on,
+	.power_off = gt02_modem_hw_power_off,
+};
+
+const struct gt02_at_io_ops gt02_modem_zephyr_io = {
+	.read = gt02_modem_hw_read,
+	.write = gt02_modem_hw_write,
+};

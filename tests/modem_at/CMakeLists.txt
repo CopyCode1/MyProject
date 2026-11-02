@@ -1,0 +1,16 @@
+cmake_minimum_required(VERSION 3.20.0)
+find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
+project(gt02_at_test)
+# 使用真实AT核心及SDK解析器，通过操作表注入假I/O，不链接任何硬件适配实现。
+target_sources(app PRIVATE ../../adapters/modem/gt02_modem_at.c
+    ../../adapters/modem/gt02_modem_lierda.c)
+if(CONFIG_AT_TEST_SERVICE)
+    target_sources(app PRIVATE src/service.c ../../services/network/gt02_network_service.c)
+elseif(CONFIG_AT_TEST_CAPABILITY)
+    target_sources(app PRIVATE src/capability.c)
+elseif(CONFIG_AT_TEST_QUERY_ALL)
+    target_sources(app PRIVATE src/query_all.c ../bringup/gt02_modem_at_test.c)
+else()
+    target_sources(app PRIVATE src/main.c)
+endif()
+target_include_directories(app PRIVATE ../.. ${ZEPHYR_BASE}/drivers/modem)

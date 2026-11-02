@@ -1,0 +1,4 @@
+interface:
+  display_name: "GT02 简洁实现与可读性"
+  short_description: "编写易读的MCU代码，收敛接口与封装，并明确重构中的行为兼容和验证边界"
+  default_prompt: "使用 $gt02-readable-c 完成指定模块的实现或评审：保持主流程直观、接口收敛与必要隔离，明确行为变化及验证结果。"

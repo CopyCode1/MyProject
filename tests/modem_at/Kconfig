@@ -1,0 +1,31 @@
+mainmenu "GT02 AT core tests"
+source "Kconfig.zephyr"
+
+config AT_TEST_FAULT_CASE
+	int "Final fault: timeout=0, partial TX=1, long line=2, long body=3, RX error=4"
+	range 0 4
+	default 0
+
+config AT_TEST_QUERY_ALL
+	bool "Run real one-shot information bring-up with fake power/UART"
+	default n
+
+config AT_TEST_CAPABILITY
+	bool "Verify unified protocol operations and typed completion events"
+	default n
+
+config AT_TEST_SERVICE
+	bool "Run minimal network service with fake power/UART"
+	default n
+
+config AT_TEST_SERVICE_CASE
+	int "Service case: ready=0, PIN=1, prepare error=2, timeout=3, power error=4, inline backend=5"
+	depends on AT_TEST_SERVICE
+	range 0 5
+	default 0
+
+config AT_TEST_QUERY_FAULT_CASE
+	int "Query sweep fault: none=0, clock ERROR=1, SIM timeout=2"
+	depends on AT_TEST_QUERY_ALL
+	range 0 2
+	default 0

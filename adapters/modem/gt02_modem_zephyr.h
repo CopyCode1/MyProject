@@ -13,6 +13,14 @@
 #include <stdint.h>
 #include <zephyr/kernel.h>
 
+#include "interfaces/gt02_modem.h"
+
+/** 当前硬件的只读电源操作表，供装配层绑定给生命周期调用者。 */
+extern const struct gt02_modem_power_ops gt02_modem_zephyr_power;
+
+/** 当前硬件的只读字节操作表，供装配层注入AT核心；不包含电源操作。 */
+extern const struct gt02_at_io_ops gt02_modem_zephyr_io;
+
 /**
  * @brief 准备未激活的POWER/PWRKEY，不上电或启动UART。
  * @retval 0 准备完成；重复调用返回0，保持当前硬件状态。
@@ -32,6 +40,7 @@ int gt02_modem_hw_init(void);
  * @note 同步等待控制锁，先进行UART驱动操作，再执行旧板约1500毫秒时序，不承诺精确耗时。
  *       不等待启动URC/AT响应，不代表模组启动完成或联网成功。
  *       失败可能留在部分上电状态，不自动切电或重试。驱动初始化失败可能需要整机重启。
+ *       UART停机清理失败单独记录，返回值仍保留触发本次失败的错误。
  *       成功建立新接收周期会清缓存/旧通知/故障；调用前由上层协调旧消费者生命周期。
  *       未开始供电阶段的framing/break和输入字节仅记录/丢弃，保持RX；开始供电后恢复严格错误处理。
  */

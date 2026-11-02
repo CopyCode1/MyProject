@@ -1,0 +1,61 @@
+common:
+  platform_allow: qemu_cortex_m3
+  tags:
+    - modem
+    - at
+  timeout: 30
+tests:
+  gt02.modem_at.timeout:
+    extra_configs:
+      - CONFIG_AT_TEST_FAULT_CASE=0
+  gt02.modem_at.partial_tx:
+    extra_configs:
+      - CONFIG_AT_TEST_FAULT_CASE=1
+  gt02.modem_at.long_line:
+    extra_configs:
+      - CONFIG_AT_TEST_FAULT_CASE=2
+  gt02.modem_at.long_body:
+    extra_configs:
+      - CONFIG_AT_TEST_FAULT_CASE=3
+  gt02.modem_at.rx_error:
+    extra_configs:
+      - CONFIG_AT_TEST_FAULT_CASE=4
+  gt02.modem_at.query_all:
+    extra_configs:
+      - CONFIG_AT_TEST_QUERY_ALL=y
+      - CONFIG_AT_TEST_QUERY_FAULT_CASE=0
+  gt02.modem_at.query_error_continue:
+    extra_configs:
+      - CONFIG_AT_TEST_QUERY_ALL=y
+      - CONFIG_AT_TEST_QUERY_FAULT_CASE=1
+  gt02.modem_at.query_timeout_stop:
+    extra_configs:
+      - CONFIG_AT_TEST_QUERY_ALL=y
+      - CONFIG_AT_TEST_QUERY_FAULT_CASE=2
+  gt02.modem_at.capability:
+    extra_configs:
+      - CONFIG_AT_TEST_CAPABILITY=y
+  gt02.modem_at.service_ready:
+    extra_configs:
+      - CONFIG_AT_TEST_SERVICE=y
+      - CONFIG_AT_TEST_SERVICE_CASE=0
+  gt02.modem_at.service_pin:
+    extra_configs:
+      - CONFIG_AT_TEST_SERVICE=y
+      - CONFIG_AT_TEST_SERVICE_CASE=1
+  gt02.modem_at.service_prepare_error:
+    extra_configs:
+      - CONFIG_AT_TEST_SERVICE=y
+      - CONFIG_AT_TEST_SERVICE_CASE=2
+  gt02.modem_at.service_timeout:
+    extra_configs:
+      - CONFIG_AT_TEST_SERVICE=y
+      - CONFIG_AT_TEST_SERVICE_CASE=3
+  gt02.modem_at.service_power_error:
+    extra_configs:
+      - CONFIG_AT_TEST_SERVICE=y
+      - CONFIG_AT_TEST_SERVICE_CASE=4
+  gt02.modem_at.service_inline_backend:
+    extra_configs:
+      - CONFIG_AT_TEST_SERVICE=y
+      - CONFIG_AT_TEST_SERVICE_CASE=5

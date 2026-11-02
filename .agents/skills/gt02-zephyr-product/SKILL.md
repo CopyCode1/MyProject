@@ -13,6 +13,7 @@ Read the relevant sections of [GT02 Zephyr 产品工程设计指南](../../../do
 
 - Requirements, milestones, or acceptance: sections 4, 15, 20, and 21.
 - Layering, APIs, directories, or dependency review: sections 2, 3, 5, 6, and 7.
+- For project-owned C implementation, function decomposition, interface scope, or refactoring, follow [GT02简洁实现与可读性](../gt02-readable-c/SKILL.md); keep necessary boundaries while matching abstraction to current complexity.
 - For architectural reasoning, lifecycle/ownership discussions, or evaluating a proposed design, use [GT02工程思路与设计讨论](../gt02-engineering-dialogue/SKILL.md) when useful; keep simple questions concise and do not expand the authorized task.
 - When adding or modifying project-owned C functions or headers, also read and follow [GT02中文函数与接口注释规范](../gt02-code-comments/SKILL.md). Use concise Chinese function comments and detailed header contracts; do not bulk-edit unrelated code.
 - Threads, events, state machines, or shared state: sections 8 and 10.

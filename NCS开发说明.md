@@ -4,6 +4,14 @@
 
 本目录是从 `E:\NRF52840\zephyrproject\MyProject` 迁移出的应用副本，使用 `C:\ncs\v3.4.1` 的 SDK 和配套工具链。原工程与原构建目录保留。后续修改本目录源码，两个副本不会自动同步。
 
+当前4G已增加[AT事务层第一版](docs/product/12_AT事务层第一版.md)：单次上电、异步事务和RDY匹配。
+已整理[旧Lierda指令清单](docs/product/13_Lierda旧工程指令清单与接入.md)：21个命令类型，11项固定查询/握手、1项厂家内部参数化LGPIO、9项预留。
+默认已切到[最小4G服务](docs/product/15_4G最小服务与调用流程.md)：一次上电 → AT/ATE0准备 → SIM查询 → 保存结果；失败即停止，不重试或自动断电。
+原11条全量查询测试保留，通过关闭CONFIG_GT02_NETWORK_SERVICE、开启CONFIG_GT02_MODEM_AT_TEST切回；两个控制者互斥。
+参数化AT文本提交时复制到固定请求存储，服务层不直接调用厂家GPIO构造入口。
+接口已集中到[gt02_modem.h](interfaces/gt02_modem.h)，协议表提供init、AT/ATE0准备及SIM查询事件；见[操作表说明](docs/product/14_4G统一能力接口与操作表.md)。服务只依赖这些操作表，不接触厂家命令ID。
+默认关闭原10秒上下电测试；下方旧阶段记录按各自日期阅读，不能当作当前配置。
+
 ## VS Code 操作
 
 1. 打开本目录。
@@ -25,6 +33,11 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\ncs.ps1 -Actio
 需要全量重新构建、烧录或查看 Kconfig 时，分别使用 `-Action Rebuild`、`-Action Flash`、`-Action Menuconfig`。
 
 固件输出：`build_ncs_341/zephyr/zephyr.hex` 和 `build_ncs_341/zephyr/zephyr.elf`。
+
+VS Code Applications中编译、烧录、调试本机固件时，选择`build_ncs_341`（板型`gt02/nrf52840`）。
+QEMU自动化测试是`tests/modem_at`下的独立应用，构建放在工程外`../_verification/MyProject/`，不能用其目录编译主工程。
+若扩展仍显示旧的`build_at_tests`，从Applications移除该失效配置并重新选择主构建，必要时执行`Developer: Reload Window`。
+`Ctrl+Shift+B`的`NCS: Build GT02`任务已固定使用主工程和`build_ncs_341`，不受扩展当前测试配置选择影响。
 
 本轮保持单应用镜像，使用 `--no-sysbuild`。增加 MCUboot/OTA 时再单独设计 Sysbuild 和 Flash 分区。
 
