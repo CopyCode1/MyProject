@@ -10,10 +10,11 @@
 #include "adapters/modem/gt02_modem_at.h"
 #include "adapters/modem/gt02_modem_lierda.h"
 
-/* ID同时用于回调核对顺序；HOLD事务留到最后触发不可恢复的流失效。 */
+/* ID同时用于回调核对顺序；HOLD用于验证超时隔离或传输/解析故障。 */
 enum command_id {
 	AT = 1, CSQ, REJECT, MISSING, MULTI, EXT_ERROR, HOLD,
 	PLAIN, PLAIN_ERROR, PLAIN_MISSING, RESERVED,
+	LATE_READ,
 	PARAM = 100, LGPIO = LIERDA_CMD_LGPIO,
 };
 struct completion {
@@ -33,10 +34,12 @@ static atomic_t urc_count;
 static atomic_t follow_up;
 static atomic_t follow_up_result;
 static atomic_t rx_error;
+static atomic_t late_read;
 static size_t fragment_size = 1;
+static unsigned int extended_errors;
 static int callback_ids[] = {
 	AT, CSQ, REJECT, MISSING, MULTI, EXT_ERROR, HOLD, PLAIN, PLAIN_ERROR, PLAIN_MISSING,
-	PARAM, LGPIO,
+	PARAM, LGPIO, LATE_READ,
 };
 
 /* 往假的UART队列放入原始字节，允许故意构造拆包、NUL和超长输入。 */
@@ -59,6 +62,14 @@ static int fake_read(uint8_t *buffer, size_t capacity, size_t *received, k_timeo
 	*received = 0;
 	if (atomic_cas(&rx_error, 1, 0)) {
 		return -EIO;
+	}
+	if (atomic_cas(&late_read, 1, 0)) {
+		/* 模拟read期间跨过200ms事务期限，但本次read仍交回旧OK。 */
+		k_sleep(K_MSEC(250));
+		zassert_true(capacity >= 4);
+		memcpy(buffer, "OK\r\n", 4);
+		*received = 4;
+		return 0;
 	}
 	int ret = k_msgq_get(&rx_bytes, buffer, timeout);
 
@@ -101,7 +112,10 @@ static int fake_write(const uint8_t *buffer, size_t length, size_t *written)
 		inject_text("+CSQ: 18,0\r\n+CSQ: 19,1\r\nOK\r\n");
 	} else if (strcmp(command, "AT+EXT") == 0) {
 		id = EXT_ERROR;
-		inject_text("+CME ERROR: 13\r\n");
+		inject_text(extended_errors++ == 0 ? "+CME ERROR: 13\r\n" : "+CMS ERROR: 500\r\n");
+	} else if (strcmp(command, "AT+LATE") == 0) {
+		id = LATE_READ;
+		atomic_set(&late_read, 1);
 	} else if (strcmp(command, "ATI") == 0) {
 		id = PLAIN;
 		inject_text("ATI\r\nLierda\r\nRDY\r\nNT26-KCN\r\nRevision: test\r\nOK\r\n");
@@ -204,6 +218,7 @@ static const struct gt02_at_command commands[] = {
 	  .reserved = true },
 	{ PARAM, "AT+PARAM", "", on_complete, &callback_ids[10], 200, true, false, true },
 	{ LGPIO, "AT+LGPIO", "", on_complete, &callback_ids[11], 200, true, false, true },
+	{ LATE_READ, "AT+LATE", NULL, on_complete, &callback_ids[12], 200, false, false, false },
 };
 static const struct gt02_at_urc urcs[] = {
 	{ "RDY", true, on_urc, &urc_count },
@@ -363,7 +378,7 @@ ZTEST(gt02_at, test_protocol_and_fault)
 	zassert_equal(gt02_at_init(&lierda_config), -EALREADY);
 	size_t reserved_count = 0;
 
-	zassert_equal(gt02_lierda_at_profile.command_count, 21);
+	zassert_equal(gt02_lierda_at_profile.command_count, LIERDA_CMD_COUNT);
 	for (size_t i = 0; i < gt02_lierda_at_profile.command_count; ++i) {
 		const struct gt02_at_command *cmd = &gt02_lierda_at_profile.commands[i];
 
@@ -400,6 +415,8 @@ ZTEST(gt02_at, test_protocol_and_fault)
 	expect_result(MISSING, GT02_AT_FAILED);
 	zassert_ok(gt02_at_submit(EXT_ERROR));
 	expect_result(EXT_ERROR, GT02_AT_FAILED);
+	zassert_ok(gt02_at_submit(EXT_ERROR));
+	expect_result(EXT_ERROR, GT02_AT_FAILED);
 	/* 后半段使用同批次多行，覆盖粘包和正文共享缓存。 */
 	fragment_size = 64;
 	zassert_ok(gt02_at_submit(MULTI));
@@ -412,7 +429,7 @@ ZTEST(gt02_at, test_protocol_and_fault)
 	zassert_equal(atomic_get(&follow_up_result), 0);
 	check_parameter_requests();
 
-	/* HOLD停在假write中，确保先填满4个排队位置，再放行并触发终止性故障。 */
+	/* HOLD停在假write中，先填满4个排队位置，再验证超时/故障及每条请求的单次回调。 */
 	zassert_ok(gt02_at_submit(HOLD));
 	int sent;
 
@@ -435,13 +452,37 @@ ZTEST(gt02_at, test_protocol_and_fault)
 		zassert_equal(done.result, GT02_AT_FAILED);
 		zassert_true(done.null_body);
 	}
-	zassert_equal(gt02_at_submit(AT), -EPIPE);
-	zassert_equal(gt02_at_submit_text(PARAM, "AT+PARAM=late"), -EPIPE);
+	int unavailable = CONFIG_AT_TEST_FAULT_CASE == 0 ? -EAGAIN : -EPIPE;
+
+	zassert_equal(gt02_at_submit(AT), unavailable);
+	zassert_equal(gt02_at_submit_text(PARAM, "AT+PARAM=late"), unavailable);
 	zassert_equal(gt02_at_init(&configuration), -EALREADY);
-	inject_text("+CSQ: 31,0\r\nOK\r\n");
+	/* 静默和迟到正文均不能提前恢复；隔离时URC仍分发，超时请求不能再收到回调。 */
+	int previous_urcs = atomic_get(&urc_count);
+
+	inject_text("+CSQ: 31,0\r\nRDY\r\n");
 	k_sleep(K_MSEC(60));
+	zassert_equal(atomic_get(&urc_count), previous_urcs + 1);
 	zassert_equal(k_msgq_get(&completions, &done, K_NO_WAIT), -ENOMSG);
 	zassert_equal(k_msgq_get(&tx_events, &sent, K_NO_WAIT), -ENOMSG);
+	zassert_equal(gt02_at_submit(AT), unavailable);
+	inject_text("OK\r\n");
+	k_sleep(K_MSEC(60));
+	zassert_equal(k_msgq_get(&completions, &done, K_NO_WAIT), -ENOMSG);
+	if (CONFIG_AT_TEST_FAULT_CASE == 0) {
+		zassert_ok(gt02_at_submit(AT));
+		expect_result(AT, GT02_AT_SUCCESS);
+		zassert_ok(gt02_at_submit(CSQ));
+		expect_result(CSQ, GT02_AT_SUCCESS);
+		/* 接收跨期也必须先通知超时，再用本批旧OK恢复，不能把结束行丢掉。 */
+		zassert_ok(gt02_at_submit(LATE_READ));
+		expect_result(LATE_READ, GT02_AT_TIMEOUT);
+		k_sleep(K_MSEC(60));
+		zassert_ok(gt02_at_submit(AT));
+		expect_result(AT, GT02_AT_SUCCESS);
+	} else {
+		zassert_equal(gt02_at_submit(AT), -EPIPE);
+	}
 }
 
 ZTEST_SUITE(gt02_at, NULL, NULL, NULL, NULL, NULL);

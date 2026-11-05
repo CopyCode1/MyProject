@@ -44,21 +44,21 @@ target_sources_ifdef(CONFIG_GT02_MODEM_HW_TEST app PRIVATE
     tests/bringup/gt02_modem_hw_test.c
 )
 
-# SDK内部解析器仅由AT核心使用，不把其类型或头文件路径传播给上层接口。
+# 保留下层AT及厂家能力；是否启动由装配入口决定，编译不表示自动上电。
 if(CONFIG_GT02_MODEM_AT)
-    target_sources(app PRIVATE adapters/modem/gt02_modem_at.c)
+    target_sources(app PRIVATE
+        adapters/modem/gt02_modem_at.c
+        adapters/modem/gt02_modem_lierda.c
+    )
+    # SDK内部解析器仅由AT核心使用，不向上层传播其头文件路径。
     target_include_directories(app PRIVATE ${ZEPHYR_BASE}/drivers/modem)
-endif()
-
-# 厂家实现由测试或服务装配，关闭旧测试时仍能供服务使用。
-if(CONFIG_GT02_MODEM_AT_TEST OR CONFIG_GT02_NETWORK_SERVICE)
-    target_sources(app PRIVATE adapters/modem/gt02_modem_lierda.c)
 endif()
 
 target_sources_ifdef(CONFIG_GT02_MODEM_AT_TEST app PRIVATE
     tests/bringup/gt02_modem_at_test.c
 )
 
+# 检测服务只依赖统一操作表，不直接使用厂家命令或硬件引脚。
 target_sources_ifdef(CONFIG_GT02_NETWORK_SERVICE app PRIVATE
     services/network/gt02_network_service.c
 )

@@ -4,8 +4,10 @@ project(gt02_at_test)
 # 使用真实AT核心及SDK解析器，通过操作表注入假I/O，不链接任何硬件适配实现。
 target_sources(app PRIVATE ../../adapters/modem/gt02_modem_at.c
     ../../adapters/modem/gt02_modem_lierda.c)
-if(CONFIG_AT_TEST_SERVICE)
-    target_sources(app PRIVATE src/service.c ../../services/network/gt02_network_service.c)
+if(CONFIG_AT_TEST_RECOVERY)
+    target_sources(app PRIVATE src/recovery.c ../../services/network/gt02_network_service.c)
+elseif(CONFIG_AT_TEST_NETWORK)
+    target_sources(app PRIVATE src/network.c ../../services/network/gt02_network_service.c)
 elseif(CONFIG_AT_TEST_CAPABILITY)
     target_sources(app PRIVATE src/capability.c)
 elseif(CONFIG_AT_TEST_QUERY_ALL)

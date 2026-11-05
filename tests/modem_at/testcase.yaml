@@ -5,6 +5,24 @@ common:
     - at
   timeout: 30
 tests:
+  gt02.modem_at.session_recovery:
+    extra_configs: [CONFIG_AT_TEST_RECOVERY=y, CONFIG_AT_TEST_RECOVERY_CASE=0]
+  gt02.modem_at.service_recovery:
+    extra_configs: [CONFIG_AT_TEST_RECOVERY=y, CONFIG_AT_TEST_RECOVERY_CASE=1]
+  gt02.modem_at.recovery_off_failure:
+    extra_configs: [CONFIG_AT_TEST_RECOVERY=y, CONFIG_AT_TEST_RECOVERY_CASE=2]
+  gt02.modem_at.recovery_missing_ready:
+    extra_configs: [CONFIG_AT_TEST_RECOVERY=y, CONFIG_AT_TEST_RECOVERY_CASE=3]
+  gt02.modem_at.recovery_prepare_error:
+    extra_configs: [CONFIG_AT_TEST_RECOVERY=y, CONFIG_AT_TEST_RECOVERY_CASE=4]
+  gt02.modem_at.recovery_on_failure:
+    extra_configs: [CONFIG_AT_TEST_RECOVERY=y, CONFIG_AT_TEST_RECOVERY_CASE=5]
+  gt02.modem_at.recovery_budget:
+    extra_configs: [CONFIG_AT_TEST_RECOVERY=y, CONFIG_AT_TEST_RECOVERY_CASE=6]
+  gt02.modem_at.recovery_rearm_failure:
+    extra_configs: [CONFIG_AT_TEST_RECOVERY=y, CONFIG_AT_TEST_RECOVERY_CASE=7]
+  gt02.modem_at.recovery_full_queue:
+    extra_configs: [CONFIG_AT_TEST_RECOVERY=y, CONFIG_AT_TEST_RECOVERY_CASE=8]
   gt02.modem_at.timeout:
     extra_configs:
       - CONFIG_AT_TEST_FAULT_CASE=0
@@ -35,27 +53,35 @@ tests:
   gt02.modem_at.capability:
     extra_configs:
       - CONFIG_AT_TEST_CAPABILITY=y
-  gt02.modem_at.service_ready:
+  gt02.modem_at.network_registration_recovery:
     extra_configs:
-      - CONFIG_AT_TEST_SERVICE=y
-      - CONFIG_AT_TEST_SERVICE_CASE=0
-  gt02.modem_at.service_pin:
+      - CONFIG_AT_TEST_NETWORK=y
+      - CONFIG_AT_TEST_NETWORK_CASE=0
+  gt02.modem_at.network_inactive_context:
     extra_configs:
-      - CONFIG_AT_TEST_SERVICE=y
-      - CONFIG_AT_TEST_SERVICE_CASE=1
-  gt02.modem_at.service_prepare_error:
+      - CONFIG_AT_TEST_NETWORK=y
+      - CONFIG_AT_TEST_NETWORK_CASE=1
+  gt02.modem_at.network_missing_ip:
     extra_configs:
-      - CONFIG_AT_TEST_SERVICE=y
-      - CONFIG_AT_TEST_SERVICE_CASE=2
-  gt02.modem_at.service_timeout:
+      - CONFIG_AT_TEST_NETWORK=y
+      - CONFIG_AT_TEST_NETWORK_CASE=2
+  gt02.modem_at.network_query_error:
     extra_configs:
-      - CONFIG_AT_TEST_SERVICE=y
-      - CONFIG_AT_TEST_SERVICE_CASE=3
-  gt02.modem_at.service_power_error:
+      - CONFIG_AT_TEST_NETWORK=y
+      - CONFIG_AT_TEST_NETWORK_CASE=3
+  gt02.modem_at.network_no_ready:
     extra_configs:
-      - CONFIG_AT_TEST_SERVICE=y
-      - CONFIG_AT_TEST_SERVICE_CASE=4
-  gt02.modem_at.service_inline_backend:
+      - CONFIG_AT_TEST_NETWORK=y
+      - CONFIG_AT_TEST_NETWORK_CASE=4
+  gt02.modem_at.network_duplicate_ready:
     extra_configs:
-      - CONFIG_AT_TEST_SERVICE=y
-      - CONFIG_AT_TEST_SERVICE_CASE=5
+      - CONFIG_AT_TEST_NETWORK=y
+      - CONFIG_AT_TEST_NETWORK_CASE=5
+  gt02.modem_at.network_at_timeout:
+    extra_configs:
+      - CONFIG_AT_TEST_NETWORK=y
+      - CONFIG_AT_TEST_NETWORK_CASE=6
+  gt02.modem_at.network_stale_and_protection:
+    extra_configs:
+      - CONFIG_AT_TEST_NETWORK=y
+      - CONFIG_AT_TEST_NETWORK_CASE=7

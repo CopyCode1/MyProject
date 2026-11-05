@@ -70,7 +70,7 @@ int gt02_modem_hw_power_off(void);
  * @retval 0 读到至少一个字节；K_NO_WAIT时也可能received为0。输出可立即使用。
  * @retval -EINVAL 参数无效，不写buffer。
  * @retval -EAGAIN 有限等待预算用尽且没有数据，不写buffer。
- * @retval -EPIPE 未就绪，或本read因下电/接收周期改变而取消，不写buffer。
+ * @retval -EPIPE 未就绪、read被取消或尚未报告的接收周期切换，不写buffer。
  * @retval -EIO 有效接收窗口内UART硬件错误，不写buffer；日志记录首次错误标志、时间及阶段。
  * @retval -ENOBUFS RX溢出且接收流失效，不写buffer。
  * @return 其他负值为内部锁存的初始化/传输错误；故障可能优先于未就绪返回。
@@ -78,6 +78,7 @@ int gt02_modem_hw_power_off(void);
  *       空唤醒不会延长本次等待预算，通知不代表完整报文。保留任意二进制字节。
  *       供电前输入不作为有效载荷交付；从使能供电阶段起才缓存原始字节。
  *       仍可能在成功返回后发生新故障；本地接收代次不识别线上迟到AT回复。
+ *       通道切换通知持久保存，即使消费者跨过整个上下电窗口，也先报告-EPIPE再交付新字节。
  */
 int gt02_modem_hw_read(uint8_t *buffer, size_t capacity, size_t *received,
 		      k_timeout_t timeout);

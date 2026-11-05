@@ -18,11 +18,11 @@
 #if defined(CONFIG_GT02_MODEM_AT_TEST)
 #include "tests/bringup/gt02_modem_at_test.h"
 #endif
-#if defined(CONFIG_GT02_NETWORK_SERVICE)
-#include "services/network/gt02_network_service.h"
-#endif
 #if defined(CONFIG_GT02_MODEM_AT_TEST) || defined(CONFIG_GT02_NETWORK_SERVICE)
 #include "adapters/modem/gt02_modem_lierda.h"
+#endif
+#if defined(CONFIG_GT02_NETWORK_SERVICE)
+#include "services/network/gt02_network_service.h"
 #endif
 #if defined(CONFIG_GT02_FLASH_SELF_TEST)
 #include "tests/bringup/gt02_flash_selftest.h"
@@ -33,24 +33,41 @@ LOG_MODULE_REGISTER(gt02_app, LOG_LEVEL_INF);
 #define IMU_POLL_INTERVAL_MS 100
 #define HEARTBEAT_INTERVAL_MS 1000
 
+#if defined(CONFIG_GT02_NETWORK_SERVICE)
+/* 装配层连接通用故障出口与服务事件入口，AT核心不引用服务符号。 */
+static void on_at_fault(int error, void *user_data)
+{
+	ARG_UNUSED(user_data);
+	gt02_network_service_notify_at_fault(error);
+}
+#endif
+
 #if defined(CONFIG_GT02_MODEM_AT_TEST) || defined(CONFIG_GT02_NETWORK_SERVICE)
 /* 装配层是唯一知道当前选用Lierda协议及Zephyr硬件实现的位置。 */
 static const struct gt02_at_config modem_at_config = {
 	.profile = &gt02_lierda_at_profile,
 	.io = &gt02_modem_zephyr_io,
+#if defined(CONFIG_GT02_NETWORK_SERVICE)
+	.on_fault = on_at_fault,
+#endif
 };
 #endif
 
 #if defined(CONFIG_GT02_NETWORK_SERVICE)
-/* 启动等待沿用当前GT02/NT26-KCN验证值，服务本身不知道具体厂家或引脚。 */
+/* 检测策略由装配层给出；保护覆盖10秒查询与5秒隔离，结果过期撤销建连放行。 */
 static const struct gt02_network_config network_config = {
 	.power = &gt02_modem_zephyr_power,
 	.modem = &gt02_lierda_ops,
-	.startup_delay_ms = 2000,
+	.session_rearm = gt02_at_session_rearm,
+	.startup_timeout_ms = 10000,
+	.operation_timeout_ms = 20000,
+	.retry_interval_ms = 5000,
+	.check_interval_ms = 30000,
+	.result_valid_ms = 45000,
 };
 #endif
 
-/* 装配外设及4G控制入口；服务负责一次上电/SIM流程，主线程继续运行LED等功能。 */
+/* 装配外设、唯一AT通道及周期检测服务；主线程继续处理LED等独立外设。 */
 int gt02_app_run(void)
 {
 	uint32_t counter = 0;
@@ -111,13 +128,13 @@ int gt02_app_run(void)
 		}
 #endif
 #if defined(CONFIG_GT02_NETWORK_SERVICE)
-		/* 先建立唯一AT接收路径，再启动服务线程上电；厂家选择仅出现在装配层。 */
+		/* 先建立唯一接收路径，再让服务注册事件并上电，保留启动期间早到RDY。 */
 		ret = gt02_at_init(&modem_at_config);
 		if (ret == 0) {
 			ret = gt02_network_service_start(&network_config);
 		}
 		if (ret < 0) {
-			LOG_WRN("4G service start failed: %d; other peripherals continue", ret);
+			LOG_WRN("4G monitor start failed: %d; other peripherals continue", ret);
 		}
 #endif
 	}

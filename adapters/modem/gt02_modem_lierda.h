@@ -23,7 +23,7 @@ enum gt02_lierda_command {
 	LIERDA_CMD_QCCID,    /**< 查询ICCID；允许20字符数字/大小写英文字母，保留原文及外层引号兼容。 */
 	LIERDA_CMD_CGREG,    /**< 查询分组域注册；仅状态1/5表示本地/漫游注册。 */
 	LIERDA_CMD_CCLK,     /**< 查询时钟原文；旧工程为条件功能，本版不设置系统时间。 */
-	LIERDA_CMD_QIACT_QUERY, /**< 查询PDP上下文原文；无正文的OK仅表示无上下文行。 */
+	LIERDA_CMD_QIACT_QUERY, /**< 查询产品CID 1的IPv4上下文；无正文OK表示未返回目标上下文。 */
 	LIERDA_CMD_RESET,    /**< 预留AT+RESET；需先定义AT核心失步/重启生命周期。 */
 	LIERDA_CMD_QICSGP,   /**< 预留APN、用户名、密码和认证方式的参数模板。 */
 	LIERDA_CMD_QIDEACT,  /**< 预留AT+QIDEACT=1，释放上下文。 */
@@ -34,6 +34,7 @@ enum gt02_lierda_command {
 	LIERDA_CMD_QTTS,     /**< 预留TTS文本模板；需编码、长度检查及播放结束URC。 */
 	LIERDA_CMD_LGPIO,    /**< 参数化LGPIO配置/电平控制，当前仅开放厂家内部构造入口。 */
 	LIERDA_CMD_QTTSETUP, /**< 预留TTS参数类型，后续由厂家流程构造具体编号和值。 */
+	LIERDA_CMD_CEREG,    /**< 查询LTE/EPS注册状态，1/5表示本地/漫游注册。 */
 	LIERDA_CMD_COUNT,    /**< 命令类型数量，用于厂家验证存储容量，不是可提交的命令。 */
 };
 
@@ -43,7 +44,9 @@ extern const struct gt02_at_profile gt02_lierda_at_profile;
 /**
  * 厂家协议操作表，供装配层注入服务或专用验证入口。
  * init只绑定事件回调；AT配置/I/O仍由装配层初始化，硬件上电与启动等待由调用者组织。
- * prepare及SIM query的结果通过统一事件返回，不创建线程，不修改电源操作表。
+ * 每次RDY上报统一STARTUP_READY，服务按阶段过滤重复；prepare/query通过完成事件返回，不创建线程。
+ * 数据查询只解释CID 1的IPv4结果，不配置APN、不激活上下文、不承诺TCP已可用。
+ * 必须在上电前绑定回调；本次开机重复RDY不再通知，不支持重启后复用去重状态。
  */
 extern const struct gt02_modem_ops gt02_lierda_ops;
 

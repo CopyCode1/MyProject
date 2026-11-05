@@ -1,5 +1,5 @@
 /** @file
- * @brief 通过真实Lierda操作表验证基础准备和SIM事件，真实AT核心只注入假I/O。
+ * @brief 验证真实Lierda准备、SIM及数据上下文事件，真实AT核心只注入假I/O。
  */
 #include <errno.h>
 #include <string.h>
@@ -15,6 +15,7 @@ struct uart_script {
 	const char *command;
 	const char *reply;
 	bool hold;
+	size_t reply_length; /* 0表示strlen；非0可注入含NUL的原始正文。 */
 };
 K_MSGQ_DEFINE(scripts, sizeof(struct uart_script), 8, 4);
 K_MSGQ_DEFINE(rx_bytes, sizeof(uint8_t), 1024, 1);
@@ -61,7 +62,11 @@ static int fake_write(const uint8_t *buffer, size_t length, size_t *written)
 		zassert_ok(k_sem_take(&release_tx, K_SECONDS(2)));
 	}
 	if (script.reply != NULL) {
-		inject_text(script.reply);
+		size_t reply_length = script.reply_length != 0 ? script.reply_length : strlen(script.reply);
+
+		for (size_t i = 0; i < reply_length; ++i) {
+			zassert_ok(k_msgq_put(&rx_bytes, &script.reply[i], K_NO_WAIT));
+		}
 	}
 	return 0;
 }
@@ -104,6 +109,22 @@ static void expect_event(enum gt02_modem_event_type type, int error, enum gt02_m
 	}
 }
 
+/* 数据上下文只在成功时有效；空上下文及失败必须保持全零，不能泄漏上次IP。 */
+static void expect_context(int error, bool active, const uint8_t ipv4[4])
+{
+	struct gt02_modem_event event;
+
+	zassert_ok(k_msgq_get(&events, &event, K_SECONDS(12)));
+	zassert_equal(event.type, GT02_MODEM_EVENT_QUERY_DONE);
+	zassert_equal(event.query, GT02_MODEM_QUERY_DATA_CONTEXT);
+	zassert_equal(event.error, error);
+	zassert_equal(event.sim, GT02_MODEM_SIM_UNKNOWN);
+	zassert_equal(event.signal_rssi, 0);
+	zassert_equal(event.registration, 0);
+	zassert_equal(event.data_context.active, active);
+	zassert_mem_equal(event.data_context.ipv4, ipv4, 4);
+}
+
 /* 单次开机覆盖可继续的协议结果，最后注入超时；不访问任何真实电源或GPIO。 */
 ZTEST(gt02_capability, test_protocol_ops)
 {
@@ -113,6 +134,7 @@ ZTEST(gt02_capability, test_protocol_ops)
 
 	zassert_equal(modem->prepare(), -EACCES);
 	zassert_equal(modem->query(GT02_MODEM_QUERY_SIM), -EACCES);
+	zassert_equal(modem->query(GT02_MODEM_QUERY_DATA_CONTEXT), -EACCES);
 	zassert_equal(modem->init(NULL, NULL), -EINVAL);
 	zassert_ok(modem->init(on_event, &receiver_context));
 	zassert_equal(modem->init(on_event, NULL), -EALREADY);
@@ -122,6 +144,10 @@ ZTEST(gt02_capability, test_protocol_ops)
 	zassert_equal(modem->query(GT02_MODEM_QUERY_SIM), -EACCES);
 	zassert_equal(k_msgq_get(&events, &unused, K_NO_WAIT), -ENOMSG);
 	zassert_ok(gt02_at_init(&config));
+	/* 每次启动通知独立于操作完成；服务负责按当前阶段过滤重复RDY。 */
+	inject_text("RDY\r\nRDY\r\n");
+	expect_event(GT02_MODEM_EVENT_STARTUP_READY, 0, GT02_MODEM_SIM_UNKNOWN);
+	expect_event(GT02_MODEM_EVENT_STARTUP_READY, 0, GT02_MODEM_SIM_UNKNOWN);
 
 	add_script("AT", "OK\r\n", true);
 	add_script("ATE0", "OK\r\n", false);
@@ -175,14 +201,70 @@ ZTEST(gt02_capability, test_protocol_ops)
 	expect_event(GT02_MODEM_EVENT_QUERY_DONE, 0, GT02_MODEM_SIM_PIN_REQUIRED);
 	zassert_equal(atomic_get(&follow_up_result), 0);
 
-	add_script("AT+CPIN?", NULL, false);
-	zassert_ok(modem->query(GT02_MODEM_QUERY_SIM));
-	expect_event(GT02_MODEM_EVENT_QUERY_DONE, -ETIMEDOUT, GT02_MODEM_SIM_UNKNOWN);
-	zassert_equal(modem->query(GT02_MODEM_QUERY_SIM), -EPIPE);
-	zassert_equal(modem->prepare(), -EPIPE);
+	const uint8_t zero_ip[4] = {0};
+	const struct {
+		const char *reply;
+		int error;
+		bool active;
+		uint8_t ipv4[4];
+	} contexts[] = {
+		{ "+QIACT: 1,1,1,\"10.20.30.40\"\r\nOK\r\n", 0, true, {10, 20, 30, 40} },
+		{ "OK\r\n", 0, false, {0} },
+		{ "+QIACT: 2,1,1,\"10.0.0.2\"\r\nOK\r\n", 0, false, {0} },
+		{ "+QIACT: 2,1,2,\"2001:db8::2\"\r\n+QIACT: 1,1,1,\"10.0.0.1\"\r\n"
+		  "+QIACT: 3,1,1,\"10.0.0.3\"\r\nOK\r\n", 0, true, {10, 0, 0, 1} },
+		{ "+QIACT: 1,1,1,\"0.0.0.0\"\r\nOK\r\n", 0, true, {0} },
+		{ "+QIACT: 1,0,1,\"\"\r\nOK\r\n", 0, false, {0} },
+		{ "+QIACT: 1,0,1,\"10.20.30.40\"\r\nOK\r\n", 0, false, {0} },
+		{ "+QIACT: 1,1,2,\"2001:db8::1\"\r\nOK\r\n", -ENOTSUP, false, {0} },
+		{ "+QIACT: 1,bad\r\nOK\r\n", -EBADMSG, false, {0} },
+		{ "+QIACT: 1,1,1,\"256.1.2.3\"\r\nOK\r\n", -EBADMSG, false, {0} },
+		{ "+QIACT: 1,1,1,\"1.2.3\"\r\nOK\r\n", -EBADMSG, false, {0} },
+		{ "+QIACT: 1,1,1,\"1.2.3.-4\"\r\nOK\r\n", -EBADMSG, false, {0} },
+		{ "+QIACT: 1,1,1,\"1.2.3.4\"junk\r\nOK\r\n", -EBADMSG, false, {0} },
+		{ "+QIACT: 1,0,1,missing_quotes\r\nOK\r\n", -EBADMSG, false, {0} },
+		{ "+QIACT: 1,1,1,\"10.0.0.1\"\r\n+QIACT: 1,1,1,\"10.0.0.2\"\r\nOK\r\n",
+		  -EBADMSG, false, {0} },
+		{ "+QIACT: 1,1,1,\"10.20.30.40\"\r\nERROR\r\n", -EIO, false, {0} },
+	};
+
+	for (size_t i = 0; i < ARRAY_SIZE(contexts); ++i) {
+		add_script("AT+QIACT?", contexts[i].reply, i == 0);
+		zassert_ok(modem->query(GT02_MODEM_QUERY_DATA_CONTEXT));
+		if (i == 0) {
+			zassert_ok(k_sem_take(&tx_started, K_SECONDS(2)));
+			zassert_equal(modem->query(GT02_MODEM_QUERY_DATA_CONTEXT), -EBUSY);
+			zassert_equal(modem->query(GT02_MODEM_QUERY_SIM), -EBUSY);
+			k_sem_give(&release_tx);
+		}
+		expect_context(contexts[i].error, contexts[i].active, contexts[i].ipv4);
+	}
+
+	static const char nul_reply[] = "+QIACT: 1,1,1,\"10.0.\0.1\"\r\nOK\r\n";
+	const struct uart_script nul_script = {
+		.command = "AT+QIACT?", .reply = nul_reply, .reply_length = sizeof(nul_reply) - 1,
+	};
+
+	zassert_ok(k_msgq_put(&scripts, &nul_script, K_NO_WAIT));
+	zassert_ok(modem->query(GT02_MODEM_QUERY_DATA_CONTEXT));
+	expect_context(-EBADMSG, false, zero_ip);
+
+	add_script("AT+QIACT?", NULL, false);
+	zassert_ok(modem->query(GT02_MODEM_QUERY_DATA_CONTEXT));
+	expect_context(-ETIMEDOUT, false, zero_ip);
+	zassert_equal(modem->query(GT02_MODEM_QUERY_SIM), -EAGAIN);
+	zassert_equal(modem->query(GT02_MODEM_QUERY_DATA_CONTEXT), -EAGAIN);
+	zassert_equal(modem->prepare(), -EAGAIN);
 	k_sleep(K_MSEC(40));
 	zassert_equal(k_msgq_get(&events, &unused, K_NO_WAIT), -ENOMSG);
 	zassert_equal(k_msgq_num_used_get(&scripts), 0);
+	/* 旧失败结束行只解除隔离，不重复通知；厂家busy应已释放，恢复后可再次查询。 */
+	inject_text("+CMS ERROR: 500\r\n");
+	k_sleep(K_MSEC(60));
+	zassert_equal(k_msgq_get(&events, &unused, K_NO_WAIT), -ENOMSG);
+	add_script("AT+CPIN?", "+CPIN: READY\r\nOK\r\n", false);
+	zassert_ok(modem->query(GT02_MODEM_QUERY_SIM));
+	expect_event(GT02_MODEM_EVENT_QUERY_DONE, 0, GT02_MODEM_SIM_READY);
 }
 
 ZTEST_SUITE(gt02_capability, NULL, NULL, NULL, NULL, NULL);

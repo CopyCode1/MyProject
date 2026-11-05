@@ -20,7 +20,7 @@
 enum gt02_at_result {
 	GT02_AT_SUCCESS, /**< 收到最终OK，且所需正文完整。 */
 	GT02_AT_FAILED,  /**< 模组拒绝、正文缺失、流故障或排队请求被取消；原因见日志。 */
-	GT02_AT_TIMEOUT, /**< 在途事务等待最终结果超时，核心停止接受后续请求。 */
+	GT02_AT_TIMEOUT, /**< 在途事务超时；取消待发请求并隔离旧回复，收到旧结束行并排空后恢复调度。 */
 };
 
 /**
@@ -52,9 +52,9 @@ struct gt02_at_command {
 	gt02_at_callback_t callback; /**< 可执行项必须提供；reserved项允许NULL，提交时不回调。 */
 	void *user_data;             /**< 回调参数，不复制对象；由注册者管理生命周期。 */
 	uint32_t timeout_ms;         /**< 开始发送起的响应预算，毫秒，必须大于0；不含排队。 */
-	bool require_response;      /**< 为true时，没有匹配正文的OK也判失败。 */
-	bool reserved;              /**< true仅登记待接入命令/格式模板；submit拒绝，不向UART发送。 */
-	bool parameterized;         /**< true只能通过submit_text提供command=参数，不允许普通submit。 */
+	bool require_response;       /**< 为true时，没有匹配正文的OK也判失败。 */
+	bool reserved;               /**< true仅登记待接入命令/格式模板；submit拒绝，不向UART发送。 */
+	bool parameterized;          /**< true只能通过submit_text提供command=参数，不允许普通submit。 */
 };
 
 /** 一条URC规则；不允许与非空正文前缀/最终响应冲突，优先于空前缀的兜底收集。 */
@@ -73,11 +73,36 @@ struct gt02_at_profile {
 	size_t urc_count;                      /**< URC元素数，允许0。 */
 };
 
+/**
+ * @brief AT进入故障保护后通知外部；同一故障阶段只调用一次，不执行电源操作。
+ * @param[in] error 导致失去调度能力的负错误码；与单条命令的三态结果分开。
+ * @param[in,out] user_data 初始化注册的长期有效上下文，允许NULL。
+ * @note 在AT线程中、请求收尾和解析清理后调用；只能非阻塞投递事件，不能等待或调用rearm。
+ */
+typedef void (*gt02_at_fault_callback_t)(int error, void *user_data);
+
 /** 一次装配AT所需的协议规则和字节通道，AT核心不接收电源操作表。 */
 struct gt02_at_config {
 	const struct gt02_at_profile *profile; /**< 必须提供，协议表及回调参数长期有效。 */
 	const struct gt02_at_io_ops *io;       /**< 必须提供read/write，操作表长期有效。 */
+	uint32_t drain_timeout_ms; /**< 独立隔离预算，毫秒；0使用5000ms，不影响命令自身超时。 */
+	gt02_at_fault_callback_t on_fault; /**< 可选故障出口，回调不得阻塞；未配置仍保持故障保护。 */
+	void *fault_user_data; /**< 故障回调上下文，不复制对象，须覆盖核心生命周期。 */
 };
+
+/**
+ * @brief 调用方确认旧会话可靠终止、新会话建立后，请Worker重新开放事务调度。
+ * @retval 0 Worker已清理上下文并进入READY，可以重新提交命令。
+ * @retval -EACCES 核心尚未初始化。
+ * @retval -EBUSY 当前不是FAULTED，不允许绕过DRAINING。
+ * @retval -EAGAIN 尚无故障后的断开及新接收证据，或仍有残行；保持FAULTED，可稍后重试。
+ * @retval -EDEADLK 在AT线程（包括其回调）调用，避免等待自身。
+ * @retval -EWOULDBLOCK 从ISR调用。
+ * @note 仅外部线程调用，同步等待Worker确认；不等待RDY，不操作硬件，不自动重试。
+ *       read须遵守有限等待、通道切换先报告-EPIPE再交付新数据的契约，回调不得阻塞。
+ *       本地断开/接收检查只是必要条件；调用者仍须确认旧会话不能再产生回复。
+ */
+int gt02_at_session_rearm(void);
 
 /**
  * @brief 注册协议表和字节I/O操作，启动唯一AT线程，不上电、不发命令。
@@ -100,10 +125,14 @@ int gt02_at_init(const struct gt02_at_config *config);
  * @retval -EINVAL 未注册的标识，或参数化项没有提供本次文本。
  * @retval -ENOTSUP 表项标记reserved，仅供清单登记；未入队，不发送、不回调。
  * @retval -ENOBUFS 已有4条待执行请求，未保留本请求，不回调。
- * @retval -EPIPE 核心已因失步停止接受请求，需显式整机重启恢复。
+ * @retval -EAGAIN 超时后正在隔离旧回复；未入队、不回调，上层可按间隔重新尝试提交。
+ * @retval -EPIPE 传输或解析完整性故障，当前不能调度，需要外部恢复。
  * @retval -EWOULDBLOCK 从ISR调用。
  * @note 仅线程调用，允许多个线程或AT回调调用；复制发送文本，不复制表中的user_data对象。
- *       核心故障时，在途请求报告原因，排队请求各回调FAILED，不自动重发或切电。
+ *       超时当前请求回调TIMEOUT，未发请求各回调FAILED；不自动重发或切电。
+ *       隔离期间保留RX和URC，只将旧结束行用于同步，不再次完成超时请求。
+ *       旧结束行后须当前批次处理完且无残行才恢复；隔离到期进入FAULTED并通知on_fault。
+ *       适用于单命令文本模式，不能区分厂商非标准的异步同名结束行；不代替模组复位恢复。
  *       硬件write没有接口级超时，响应预算不提供异常硬件下严格总耗时保证。
  */
 int gt02_at_submit(uint16_t command_id);

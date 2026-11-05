@@ -22,7 +22,7 @@
  * @param[in] timeout Zephyr超时对象；K_NO_WAIT仅尝试读取，有限等待不因空唤醒延长。
  * @retval 0 读取成功；K_NO_WAIT时也允许received为0。
  * @retval -EAGAIN 有限等待到期且无数据。
- * @retval -EPIPE 通道未就绪或本次read被停机取消。
+ * @retval -EPIPE 通道未就绪、read被取消或有尚未报告的通道切换；切换后先报告再交付新数据。
  * @return 其他负值为参数、缓存溢出或传输错误，失败不交付部分数据。
  * @note 不拼行、不补NUL，不保留调用者指针；允许二进制字节。
  *       read必须能与电源控制及TX并行，不能等待贯穿整个上电过程的控制锁。
@@ -67,9 +67,12 @@ struct gt02_modem_power_ops {
 	int (*power_off)(void);
 };
 
-/** 公共查询类型，不暴露厂家AT命令ID；首版仅实现SIM查询。 */
+/** 公共查询类型，不暴露厂家AT命令ID。 */
 enum gt02_modem_query {
 	GT02_MODEM_QUERY_SIM, /**< 查询SIM是否就绪或需要PIN/PUK，不执行解锁。 */
+	GT02_MODEM_QUERY_SIGNAL, /**< 查询CSQ；有效RSSI范围为0..31或99（未知）。 */
+	GT02_MODEM_QUERY_LTE_REGISTRATION, /**< 查询LTE/EPS注册状态；1为本地注册，5为漫游注册。 */
+	GT02_MODEM_QUERY_DATA_CONTEXT, /**< 查询产品数据上下文；当前Lierda固定选择CID 1、IPv4，不配置或激活。 */
 };
 
 /** 公共SIM状态；查询失败必须配合事件error判断，不能把UNKNOWN当成无卡。 */
@@ -81,10 +84,17 @@ enum gt02_modem_sim_state {
 	GT02_MODEM_SIM_PUK_REQUIRED, /**< 查询成功，需要PUK，不自动尝试解锁。 */
 };
 
-/** 厂家层向唯一调用者交付的完成事件；首版不包含通道恢复或TCP/TTS事件。 */
+/** 厂家层向唯一调用者交付的启动通知及完成事件；不包含通道恢复或TCP/TTS事件。 */
 enum gt02_modem_event_type {
 	GT02_MODEM_EVENT_PREPARE_DONE, /**< 本次基础握手准备结束，结果见error。 */
 	GT02_MODEM_EVENT_QUERY_DONE,   /**< 本次查询结束，类型和数据见query/sim。 */
+	GT02_MODEM_EVENT_STARTUP_READY, /**< 收到厂家启动通知；上层按阶段过滤重复，不代表联网。 */
+};
+
+/** 产品数据上下文的按值结果；当前只支持旧工程使用的CID 1及IPv4。 */
+struct gt02_modem_data_context {
+	bool active;     /**< 模组报告上下文已激活；不保证IP可用、外网可达或TCP成功。 */
+	uint8_t ipv4[4]; /**< IPv4四个网络顺序字节；未激活/未返回目标上下文时全0，0.0.0.0也需上层判未就绪。 */
 };
 
 /** 按值交付的厂家无关结果；所有字段均由产生事件的厂家实现填写。 */
@@ -93,6 +103,9 @@ struct gt02_modem_event {
 	enum gt02_modem_query query;     /**< 仅QUERY_DONE有效，表示公共查询类型。 */
 	int error;                      /**< 0为协议操作及正文解析成功；其他值为负错误码。 */
 	enum gt02_modem_sim_state sim;   /**< 仅SIM查询成功时有效，否则为UNKNOWN。 */
+	unsigned int signal_rssi;        /**< 仅信号查询成功时有效，取值0..31或99；原始CSQ等级。 */
+	unsigned int registration;       /**< 仅LTE注册查询成功时有效，1为本地注册，5为漫游注册。 */
+	struct gt02_modem_data_context data_context; /**< 仅数据上下文查询成功时有效，其他事件或失败时全0。 */
 };
 
 /**
@@ -100,7 +113,8 @@ struct gt02_modem_event {
  * @param[in] event 非NULL，仅回调期间有效；需要跨线程使用时复制整个结构。
  * @param[in,out] user_data init注册的长期上下文，可为NULL，不由厂家实现释放。
  * @note 回调没有返回值；可非阻塞投递事件，也可提交下一次协议操作。
- *       实现调用回调前已释放内部操作占用和锁。不得保存event指针或在回调内等待AT。
+ *       完成事件通知前已释放操作占用；启动通知不结束或清除在途操作，所有通知均在锁外调用。
+ *       必须在上电前注册；启动通知可能在power_on返回前到达。不得保存event指针或等待AT。
  */
 typedef void (*gt02_modem_event_cb_t)(const struct gt02_modem_event *event, void *user_data);
 
@@ -127,21 +141,25 @@ struct gt02_modem_ops {
 	 * @retval 0 已接受，最终交付一次PREPARE_DONE。
 	 * @retval -EACCES 尚未绑定回调，或AT核心尚未初始化。
 	 * @retval -EBUSY 已有协议操作在执行。
+	 * @retval -EAGAIN AT核心正在隔离超时事务的旧回复，本次未接受，不产生完成事件。
 	 * @return 其他负值为AT提交错误，未接受时不产生事件；ISR返回-EWOULDBLOCK。
 	 * @note 调用者先完成硬件上电及所需启动等待；本方法不操作电源、不等待RDY/注册。
+	 *       Lierda每次识别RDY均独立上报STARTUP_READY，不需要先调用prepare；上层按阶段过滤。
 	 *       不自动重试，AT失败或第二步入队失败均通过已接受操作的完成事件报告。
 	 */
 	int (*prepare)(void);
 	/**
 	 * @brief 异步查询一种公共状态，厂家负责命令选择、正文解析和事件转换。
-	 * @param[in] query 公共能力枚举，首版仅支持GT02_MODEM_QUERY_SIM。
-	 * @retval 0 已接受，最终交付一次QUERY_DONE，数据仅在error为0时有效。
+	 * @param[in] query 公共查询类型：SIM、信号强度、LTE注册或产品数据上下文。
+	 * @retval 0 已接受，最终交付一次QUERY_DONE；按query读取对应成员，数据仅在error为0时有效。
 	 * @retval -ENOTSUP 查询类型尚未支持。
 	 * @retval -EACCES 尚未绑定回调，或AT核心尚未初始化。
 	 * @retval -EBUSY 已有协议操作在执行。
+	 * @retval -EAGAIN AT核心正在隔离旧回复，本次未接受；调用者可稍后重新提交。
 	 * @return 其他负值为AT提交错误，未接受时不产生事件；ISR返回-EWOULDBLOCK。
-	 * @note 查询成功与SIM就绪分别表达；结果错误可为-ETIMEDOUT、-EBADMSG或-EIO。
+	 * @note 查询成功与SIM就绪、信号有效或注册成功分别表达；结果错误可为-ETIMEDOUT、-EBADMSG或-EIO。
 	 *       EIO为当前AT失败的通用映射，不声称能区分模组拒绝和底层失步。
+	 *       数据上下文无正文或无CID 1时成功返回inactive；目标为IPv6等未支持类型时返回-ENOTSUP。
 	 */
 	int (*query)(enum gt02_modem_query query);
 };

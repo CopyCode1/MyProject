@@ -61,13 +61,13 @@ config GT02_MODEM_AT
 	  TCP, prompts or binary payloads. Cannot share RX with the raw test.
 
 config GT02_NETWORK_SERVICE
-	bool "Minimal one-shot modem service: power, prepare, SIM"
+	bool "Periodic SIM, LTE registration and IPv4 data-readiness monitor"
 	depends on GT02_MODEM_AT
 	default n
 	help
-	  Bind power/protocol operations and run a single power-on, prepare and
-	  SIM query in one service thread. No retry, recovery, PDP, TCP or TTS.
-	  Exclusive with the legacy information-query controller.
+	  Power on once, wait for startup notification, prepare AT, then query
+	  SIM, signal, LTE registration and CID1 IPv4 data context periodically.
+	  No APN configuration, data activation, TCP, TTS or automatic recovery.
 
 config GT02_MODEM_AT_TEST
 	bool "Temporary one-shot modem information queries"

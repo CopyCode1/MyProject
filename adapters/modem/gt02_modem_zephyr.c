@@ -40,6 +40,7 @@ static struct k_spinlock rx_lock;
 static atomic_t uart_active; /* UART可能已驱动引脚；失败后仍需尝试挂起清理。 */
 static atomic_t io_ready; /* UART通道已启用；上电期间先接收，TX受control_lock约束。 */
 static atomic_t rx_generation; /* 仅取消本地旧read，不用于识别线上迟到回复。 */
+static atomic_val_t read_generation; /* rx_lock保护，唯一消费者持久确认通道变更，不能每次read重新取基线。 */
 static atomic_t transport_error;
 
 /* 内部硬件阶段用于区分未供电输入与有效接收窗口，不表示模组或网络就绪。 */
@@ -475,11 +476,18 @@ int gt02_modem_hw_read(uint8_t *buffer, size_t capacity, size_t *received,
 		return -EINVAL;
 	}
 	k_timepoint_t deadline = sys_timepoint_calc(timeout);
-	atomic_val_t generation = atomic_get(&rx_generation);
-
 	for (;;) {
 		k_spinlock_key_t key = k_spin_lock(&rx_lock);
-		int ret = generation != atomic_get(&rx_generation) ? -EPIPE : io_status();
+		atomic_val_t generation = atomic_get(&rx_generation);
+		int ret;
+
+		/* 即使消费者跨过整个关/开窗口，也必须先交付边界，再读取新会话字节。 */
+		if (read_generation != generation) {
+			read_generation = generation;
+			ret = -EPIPE;
+		} else {
+			ret = io_status();
+		}
 
 		if (ret == 0) {
 			*received = ring_buf_get(&rx_ring, buffer,

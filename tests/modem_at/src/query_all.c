@@ -115,7 +115,7 @@ ZTEST(gt02_query_all, test_query_sequence)
 	if (CONFIG_AT_TEST_QUERY_FAULT_CASE == 2) {
 		k_sleep(K_SECONDS(3));
 		zassert_equal(atomic_get(&tx_count), 4);
-		zassert_equal(gt02_at_submit(LIERDA_CMD_CSQ), -EPIPE);
+		zassert_equal(gt02_at_submit(LIERDA_CMD_CSQ), -EAGAIN);
 	} else {
 		/* 最后一条已回包，留出接收、厂家解析和最终测试汇总的执行时间。 */
 		k_sleep(K_MSEC(200));
