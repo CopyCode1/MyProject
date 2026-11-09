@@ -7,9 +7,9 @@ config AT_TEST_RECOVERY
 	default n
 
 config AT_TEST_RECOVERY_CASE
-	int "Recovery: core=0, service=1, off failure=2, no RDY=3, prepare ERROR=4, on failure=5, repeated fault=6, rearm failure=7, full queue=8"
+	int "Recovery: core=0, service=1, failures=2..9, blocked rearm=10, blocked power off=11"
 	depends on AT_TEST_RECOVERY
-	range 0 8
+	range 0 11
 	default 0
 
 config AT_TEST_FAULT_CASE
@@ -30,9 +30,9 @@ config AT_TEST_NETWORK
 	default n
 
 config AT_TEST_NETWORK_CASE
-	int "Network case: registration recovery=0, inactive=1, no IP=2, ERROR=3, no RDY=4, repeated RDY=5, AT timeout=6, stale/protection=7"
+	int "Network: readiness/fault=0..18, PDP activation sequence/failures=19..25"
 	depends on AT_TEST_NETWORK
-	range 0 7
+	range 0 25
 	default 0
 
 config AT_TEST_QUERY_FAULT_CASE

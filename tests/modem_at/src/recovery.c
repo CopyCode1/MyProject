@@ -12,6 +12,8 @@
 K_MSGQ_DEFINE(rx, sizeof(uint8_t), 2048, 1);
 K_MSGQ_DEFINE(results, sizeof(enum gt02_at_result), 16, 4);
 K_SEM_DEFINE(fault_seen, 0, 1);
+K_SEM_DEFINE(control_pending, 0, 1);
+K_SEM_DEFINE(release_control, 0, 1);
 static atomic_t boundary;
 static atomic_t flood;
 static atomic_t fault_count;
@@ -22,6 +24,8 @@ static atomic_t off_count;
 static atomic_t boot_count;
 static atomic_t powered;
 static atomic_t rearm_in_callback;
+static atomic_t activation_count;
+static atomic_t activation_boot;
 static atomic_t fail_next_sim;
 static bool core;
 
@@ -63,7 +67,7 @@ static int fake_read(uint8_t *buffer, size_t capacity, size_t *received, k_timeo
 	return 0;
 }
 
-/* 第一轮SIM故意不回应；恢复分支分别注入准备失败、再次超时或正常四项查询。 */
+/* 第一轮SIM故意不回应；恢复后核对每次上电的激活及IP查询顺序，其他分支注入失败。 */
 static int fake_write(const uint8_t *buffer, size_t length, size_t *written)
 {
 	char command[132];
@@ -96,8 +100,14 @@ static int fake_write(const uint8_t *buffer, size_t length, size_t *written)
 		inject("+CSQ: 18,0\r\nOK\r\n");
 	} else if (strcmp(command, "AT+CEREG?") == 0) {
 		inject("+CEREG: 0,1\r\nOK\r\n");
+	} else if (strcmp(command, "AT+QIACT=1") == 0) {
+		zassert_not_equal(atomic_get(&activation_boot), boot, "PDP activated twice in one boot");
+		atomic_set(&activation_boot, boot);
+		atomic_inc(&activation_count);
+		inject("OK\r\n");
 	} else {
 		zassert_equal(strcmp(command, "AT+QIACT?"), 0);
+		zassert_equal(atomic_get(&activation_boot), boot, "PDP not activated after power cycle");
 		inject("+QIACT: 1,1,1,\"10.1.2.3\"\r\nOK\r\n");
 	}
 	return 0;
@@ -132,10 +142,11 @@ static void on_fault(int error, void *context)
 	if (!core) {
 		gt02_network_service_notify_at_fault(error);
 		if (CONFIG_AT_TEST_RECOVERY_CASE == 8) {
-			/* AT优先级高于服务：填满唤醒队列仍不能丢失首个故障原因。 */
+			/* AT优先级高于服务：重复故障及随后一批RDY填满普通队列，仍保留根因。 */
 			for (int i = 0; i < 8; ++i) {
 				gt02_network_service_notify_at_fault(error);
 			}
+			inject("RDY\r\nRDY\r\nRDY\r\nRDY\r\nRDY\r\nRDY\r\n");
 		}
 	}
 	k_sem_give(&fault_seen);
@@ -154,6 +165,10 @@ static void expect(enum gt02_at_result expected)
 static int power_off(void)
 {
 	atomic_inc(&off_count);
+	if (CONFIG_AT_TEST_RECOVERY_CASE == 11) {
+		k_sem_give(&control_pending);
+		zassert_ok(k_sem_take(&release_control, K_SECONDS(2)));
+	}
 	if (CONFIG_AT_TEST_RECOVERY_CASE == 2) {
 		return -EIO;
 	}
@@ -182,9 +197,16 @@ static int power_on(void)
 	return 0;
 }
 
-/* 只替换恢复操作的失败结果，不修改厂家或AT核心状态。 */
+/* 模拟会话重建拒绝或慢完成，其余路径交给真实AT核心确认新会话。 */
 static int rearm_session(void)
 {
+	if (CONFIG_AT_TEST_RECOVERY_CASE == 10) {
+		k_sem_give(&control_pending);
+		zassert_ok(k_sem_take(&release_control, K_SECONDS(2)));
+	}
+	if (CONFIG_AT_TEST_RECOVERY_CASE == 9) {
+		return -EAGAIN; /* 始终没有安全边界，启动/恢复期限仍须有界。 */
+	}
 	return CONFIG_AT_TEST_RECOVERY_CASE == 7 ? -EIO : gt02_at_session_rearm();
 }
 
@@ -236,6 +258,16 @@ static void check_core(void)
 	inject("\r\n");
 	k_sleep(K_MSEC(40));
 	zassert_ok(gt02_at_session_rearm());
+	/* rearm清理解析状态后、尚无新read成功之前再断开，仍须识别为运行中断开。
+	 * 这段历史不能随clear_rx_context/clear_context被清零。
+	 */
+	atomic_set(&boundary, 1);
+	zassert_ok(k_sem_take(&fault_seen, K_SECONDS(1)));
+	zassert_equal(atomic_get(&fault_count), 2);
+	zassert_equal(gt02_at_submit(1), -EPIPE);
+	inject("RDY\r\n");
+	k_sleep(K_MSEC(40));
+	zassert_ok(gt02_at_session_rearm());
 	zassert_ok(gt02_at_submit(1));
 	expect(GT02_AT_SUCCESS);
 	previous = atomic_get(&urcs);
@@ -247,7 +279,7 @@ static void check_core(void)
 	expect(GT02_AT_SUCCESS);
 	atomic_clear(&flood);
 	k_sleep(K_MSEC(40));
-	zassert_equal(atomic_get(&fault_count), 1);
+	zassert_equal(atomic_get(&fault_count), 2);
 	enum gt02_at_result unused;
 
 	zassert_equal(k_msgq_get(&results, &unused, K_NO_WAIT), -ENOMSG);
@@ -259,17 +291,58 @@ static void check_service(void)
 	static const struct gt02_modem_power_ops power = { .power_on = power_on, .power_off = power_off };
 	const struct gt02_network_config config = {
 		.power = &power, .modem = &gt02_lierda_ops, .session_rearm = rearm_session,
-		.startup_timeout_ms = 250, .operation_timeout_ms = 4000,
+		.startup_timeout_ms = 250,
 		.retry_interval_ms = 100, .check_interval_ms = 500, .result_valid_ms = 1000,
 	};
 	struct gt02_network_status status;
 	int mode = CONFIG_AT_TEST_RECOVERY_CASE;
 	bool second_fault_injected = false;
+	int64_t before_rearm_expiry_ms = 0;
 	int64_t end = k_uptime_get() + 7000;
 
 	zassert_ok(gt02_network_service_start(&config));
+	if (mode == 10 || mode == 11) {
+		zassert_ok(k_sem_take(&control_pending, K_SECONDS(3)));
+		int before = atomic_get(&tx_count);
+		int error = mode == 10 ? -ETIMEDOUT : -ECANCELED;
+
+		zassert_ok(gt02_network_service_get_status(&status));
+		int64_t previous_fault_at_ms = status.checked_at_ms;
+
+		if (mode == 11) {
+			gt02_network_service_notify_at_fault(error);
+		}
+		/* rearm阻塞时服务仍能执行启动期限；切电阻塞时仍能处理新的全局故障。 */
+		int64_t deadline = k_uptime_get() + 800;
+
+		do {
+			zassert_ok(gt02_network_service_get_status(&status));
+			if (status.state == GT02_NETWORK_FAULT && status.error == error &&
+			    (mode != 10 || status.checked_at_ms > previous_fault_at_ms)) {
+				break;
+			}
+			k_sleep(K_MSEC(5));
+		} while (k_uptime_get() < deadline);
+		zassert_equal(status.error, error);
+		zassert_equal(status.state, GT02_NETWORK_FAULT);
+		if (mode == 10) {
+			zassert_true(status.checked_at_ms > previous_fault_at_ms);
+		}
+		k_sem_give(&release_control);
+		k_sleep(K_MSEC(150));
+		zassert_ok(gt02_network_service_get_status(&status));
+		zassert_equal(status.error, error, "late control completion resumed recovery");
+		zassert_equal(atomic_get(&tx_count), before);
+		zassert_equal(atomic_get(&boot_count), mode == 10 ? 2 : 1);
+		zassert_equal(atomic_get(&off_count), 1);
+		return;
+	}
 	do {
 		zassert_ok(gt02_network_service_get_status(&status));
+		if (mode == 9 && atomic_get(&boot_count) == 2 && before_rearm_expiry_ms == 0) {
+			/* 初次AT故障已经发布FAULT；记下该快照，期限到达必须另行发布恢复失败。 */
+			before_rearm_expiry_ms = status.checked_at_ms;
+		}
 		if ((mode == 1 || mode == 8) && status.state == GT02_NETWORK_DATA_READY) {
 			if (mode == 1 && !second_fault_injected) {
 				/* 完整检查成功后才注入后续独立故障，验证恢复机会确实重置。 */
@@ -284,9 +357,16 @@ static void check_service(void)
 	if (mode == 1 || mode == 8) {
 		zassert_equal(status.state, GT02_NETWORK_DATA_READY);
 		zassert_equal(atomic_get(&boot_count), mode == 1 ? 3 : 2);
+		zassert_equal(atomic_get(&activation_count), mode == 1 ? 2 : 1);
 	} else {
 		zassert_equal(status.state, GT02_NETWORK_FAULT);
 		zassert_equal(atomic_get(&boot_count), mode == 2 ? 1 : 2);
+		if (mode == 9) {
+			zassert_equal(status.error, -ETIMEDOUT);
+			zassert_true(before_rearm_expiry_ms > 0);
+			zassert_true(status.checked_at_ms > before_rearm_expiry_ms,
+				     "rearm deadline did not publish a new failure");
+		}
 	}
 	zassert_equal(atomic_get(&off_count), mode == 1 ? 2 : 1);
 	zassert_equal(atomic_get(&fault_count), mode == 1 || mode == 6 ? 2 : 1);

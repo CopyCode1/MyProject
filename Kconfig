@@ -67,7 +67,10 @@ config GT02_NETWORK_SERVICE
 	help
 	  Power on once, wait for startup notification, prepare AT, then query
 	  SIM, signal, LTE registration and CID1 IPv4 data context periodically.
-	  No APN configuration, data activation, TCP, TTS or automatic recovery.
+	  After registration, activate CID1 once successfully per power session
+	  before querying its IP. Retry failed activation on the next check.
+	  No APN configuration, TCP or TTS. AT faults may trigger a controlled
+	  power cycle when the power-off and session-rearm hooks are provided.
 
 config GT02_MODEM_AT_TEST
 	bool "Temporary one-shot modem information queries"

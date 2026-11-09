@@ -54,13 +54,12 @@ static const struct gt02_at_config modem_at_config = {
 #endif
 
 #if defined(CONFIG_GT02_NETWORK_SERVICE)
-/* 检测策略由装配层给出；保护覆盖10秒查询与5秒隔离，结果过期撤销建连放行。 */
+/* 装配层只配置启动等待、检测间隔及结果有效期；命令超时归AT/厂家实现所有。 */
 static const struct gt02_network_config network_config = {
 	.power = &gt02_modem_zephyr_power,
 	.modem = &gt02_lierda_ops,
 	.session_rearm = gt02_at_session_rearm,
 	.startup_timeout_ms = 10000,
-	.operation_timeout_ms = 20000,
 	.retry_interval_ms = 5000,
 	.check_interval_ms = 30000,
 	.result_valid_ms = 45000,

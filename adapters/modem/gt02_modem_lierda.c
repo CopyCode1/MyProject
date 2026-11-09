@@ -1,6 +1,6 @@
 /**
  * @file
- * @brief Lierda NT26-KCN命令类型、基础查询及参数构造，特殊事务保留待接入。
+ * @brief Lierda NT26-KCN基础准备、PDP激活、状态查询及参数构造，特殊事务保留待接入。
  */
 #include <errno.h>
 #include <stdio.h>
@@ -13,15 +13,6 @@
 
 LOG_MODULE_REGISTER(gt02_lierda, LOG_LEVEL_INF);
 
-/* 只由AT线程读写；失败保留旧数值但撤销本次查询有效性，不供其他线程直接访问。 */
-struct lierda_status {
-	bool signal_valid;   /* 最近一次CSQ事务及正文解析是否成功。 */
-	unsigned int rssi;   /* CSQ原始RSSI：0..31或99（未知），不是dBm。 */
-	unsigned int ber;    /* CSQ原始BER：0..7或99（未知）。 */
-	bool ready_seen;     /* 仅记录曾观察到RDY，不再用于去重，也不表示当前联网。 */
-};
-static struct lierda_status lierda_status;
-
 /* 公共能力只允许一个在途操作；锁内仅修改短状态，不提交AT、不调用上层回调。 */
 enum lierda_operation {
 	LIERDA_OP_IDLE,
@@ -31,6 +22,7 @@ enum lierda_operation {
 	LIERDA_OP_QUERY_SIGNAL,
 	LIERDA_OP_QUERY_LTE_REGISTRATION,
 	LIERDA_OP_QUERY_DATA_CONTEXT,
+	LIERDA_OP_ACTIVATE_DATA_CONTEXT,
 };
 static struct k_spinlock operation_lock;
 static enum lierda_operation operation;
@@ -63,10 +55,16 @@ static void finish_operation(enum lierda_operation expected, int error,
 	if (error == 0 && result != NULL) {
 		event = *result;
 	}
-	event.type = expected >= LIERDA_OP_QUERY_SIM ? GT02_MODEM_EVENT_QUERY_DONE :
-		GT02_MODEM_EVENT_PREPARE_DONE;
+	event.type = GT02_MODEM_EVENT_QUERY_DONE;
 	event.error = error;
 	switch (expected) {
+	case LIERDA_OP_PREPARE_AT:
+	case LIERDA_OP_PREPARE_ECHO:
+		event.type = GT02_MODEM_EVENT_PREPARE_DONE;
+		break;
+	case LIERDA_OP_ACTIVATE_DATA_CONTEXT:
+		event.type = GT02_MODEM_EVENT_ACTIVATE_DONE;
+		break;
 	case LIERDA_OP_QUERY_SIGNAL:
 		event.query = GT02_MODEM_QUERY_SIGNAL;
 		break;
@@ -142,6 +140,12 @@ static int lierda_prepare(void)
 	return begin_operation(LIERDA_OP_PREPARE_AT, LIERDA_CMD_AT);
 }
 
+/* 只发起CID 1激活；注册前置条件、每次上电的激活次数及IP确认由服务管理。 */
+static int lierda_activate_data_context(void)
+{
+	return begin_operation(LIERDA_OP_ACTIVATE_DATA_CONTEXT, LIERDA_CMD_QIACT);
+}
+
 /* 以公共查询类型选择厂家命令；未实现的类型明确拒绝，不伪造完成事件。 */
 static int lierda_query(enum gt02_modem_query query)
 {
@@ -211,17 +215,24 @@ static void on_prepare_echo_result(enum gt02_at_result result, const char *respo
 	finish_operation(LIERDA_OP_PREPARE_ECHO, at_result_error(result), NULL);
 }
 
-/* 只有最终OK后的完整合法正文才能更新信号；数值宽度受限，避免任意大整数转换。 */
+/* AT线程在激活命令最终结束后交付一次结果；成功不填充IP或直接宣告网络就绪。 */
+static void on_activate_result(enum gt02_at_result result, const char *response,
+			       size_t length, void *user_data)
+{
+	on_basic_result(result, response, length, user_data);
+	finish_operation(LIERDA_OP_ACTIVATE_DATA_CONTEXT, at_result_error(result), NULL);
+}
+
+/* 解析最终OK后的完整CSQ正文并交付本次结果；历史快照由服务维护，不另存重复缓存。 */
 static void on_csq_result(enum gt02_at_result result, const char *response,
 			  size_t length, void *user_data)
 {
-	struct lierda_status *status = user_data;
 	unsigned int rssi;
 	unsigned int ber;
 	char extra;
 	int error = at_result_error(result);
 
-	status->signal_valid = false;
+	ARG_UNUSED(user_data);
 	if (error != 0) {
 		LOG_ERR("CSQ query failed: result=%d; signal not updated", result);
 	} else if (response == NULL || memchr(response, '\0', length) != NULL ||
@@ -230,9 +241,6 @@ static void on_csq_result(enum gt02_at_result result, const char *response,
 		LOG_ERR("CSQ AT completed but body is invalid; signal not updated");
 		error = -EBADMSG;
 	} else {
-		status->rssi = rssi;
-		status->ber = ber;
-		status->signal_valid = true;
 		LOG_INF("CSQ query PASS: rssi=%u, ber=%u (99=unknown)", rssi, ber);
 	}
 	const struct gt02_modem_event event = { .signal_rssi = error == 0 ? rssi : 0 };
@@ -516,15 +524,13 @@ static void on_cereg_result(enum gt02_at_result result, const char *response,
  */
 static void on_ready(const char *content, size_t length, void *user_data)
 {
-	struct lierda_status *status = user_data;
-
 	ARG_UNUSED(content);
 	ARG_UNUSED(length);
+	ARG_UNUSED(user_data);
 	k_spinlock_key_t key = k_spin_lock(&operation_lock);
 	gt02_modem_event_cb_t callback = event_callback;
 	void *context = event_user_data;
 
-	status->ready_seen = true;
 	k_spin_unlock(&operation_lock, key);
 	LOG_INF("RDY URC received; registration/TCP not tested");
 	if (callback != NULL) {
@@ -572,7 +578,7 @@ int gt02_lierda_gpio_set(unsigned int pin, bool high)
 static const struct gt02_at_command lierda_commands[] = {
 	{ .id = LIERDA_CMD_AT,          .command = "AT",           .timeout_ms = 2000,		.callback = on_prepare_at_result, .user_data = "AT handshake", },
 	{ .id = LIERDA_CMD_ECHO_OFF,    .command = "ATE0",         .timeout_ms = 2000,		.callback = on_prepare_echo_result, .user_data = "Echo off",   },
-	{ .id = LIERDA_CMD_CSQ,         .command = "AT+CSQ",       .timeout_ms = 2000,		.callback = on_csq_result,      .user_data = &lierda_status, 	.response_prefix = "+CSQ:",  .require_response = true },
+	{ .id = LIERDA_CMD_CSQ,         .command = "AT+CSQ",       .timeout_ms = 2000,		.callback = on_csq_result,      .response_prefix = "+CSQ:",  .require_response = true },
 
 	/* 空前缀只收集未命中已注册URC的正文；数字标识还须通过回调校验。 */					
 	{ .id = LIERDA_CMD_ATI,         .command = "ATI",          .timeout_ms = 2000,		.callback = on_text_result,     .user_data = "ATI",  	.response_prefix = "",        	.require_response = true },
@@ -584,11 +590,11 @@ static const struct gt02_at_command lierda_commands[] = {
 	{ .id = LIERDA_CMD_CEREG,       .command = "AT+CEREG?",    .timeout_ms = 2000,		.callback = on_cereg_result,                         	.response_prefix = "+CEREG:", 	.require_response = true },
 	{ .id = LIERDA_CMD_CCLK,        .command = "AT+CCLK?",     .timeout_ms = 2000,		.callback = on_text_result,     .user_data = "CCLK", 	.response_prefix = "+CCLK:",  	.require_response = true },
 	{ .id = LIERDA_CMD_QIACT_QUERY, .command = "AT+QIACT?",    .timeout_ms = 10000,		.callback = on_data_context_result,                  	.response_prefix = "+QIACT:" },
+	{ .id = LIERDA_CMD_QIACT, 		.command = "AT+QIACT=1",   .timeout_ms = 10000,		.callback = on_activate_result, .user_data = "PDP activation CID=1" },
 
 /* 以下仅登记旧功能：未接入参数、生命周期、提示符或异步业务完成条件。 */
 	{ .id = LIERDA_CMD_RESET,       .command = "AT+RESET",     .timeout_ms = 2000, 		.reserved = true },
 	{ .id = LIERDA_CMD_QIDEACT,     .command = "AT+QIDEACT=1", .timeout_ms = 2000,		.reserved = true },
-	{ .id = LIERDA_CMD_QIACT,       .command = "AT+QIACT=1",   .timeout_ms = 10000,  	.reserved = true },	
 	{ .id = LIERDA_CMD_QICSGP,      .command = "AT+QICSGP",    .timeout_ms = 5000, 		.reserved = true, 		.parameterized = true },
 	{ .id = LIERDA_CMD_QIOPEN,      .command = "AT+QIOPEN",    .timeout_ms = 4000,   	.reserved = true, 		.parameterized = true },
 	{ .id = LIERDA_CMD_QICLOSE,     .command = "AT+QICLOSE",   .timeout_ms = 2000,   	.reserved = true,		.parameterized = true },
@@ -601,7 +607,7 @@ static const struct gt02_at_command lierda_commands[] = {
 };
 
 static const struct gt02_at_urc lierda_urcs[] = {
-	{ .match = "RDY", .exact = true, .callback = on_ready, .user_data = &lierda_status },
+	{ .match = "RDY", .exact = true, .callback = on_ready },
 };
 
 const struct gt02_at_profile gt02_lierda_at_profile = {
@@ -614,4 +620,5 @@ const struct gt02_modem_ops gt02_lierda_ops = {
 	.init = lierda_init,
 	.prepare = lierda_prepare,
 	.query = lierda_query,
+	.activate_data_context = lierda_activate_data_context,
 };

@@ -89,6 +89,7 @@ enum gt02_modem_event_type {
 	GT02_MODEM_EVENT_PREPARE_DONE, /**< 本次基础握手准备结束，结果见error。 */
 	GT02_MODEM_EVENT_QUERY_DONE,   /**< 本次查询结束，类型和数据见query/sim。 */
 	GT02_MODEM_EVENT_STARTUP_READY, /**< 收到厂家启动通知；上层按阶段过滤重复，不代表联网。 */
+	GT02_MODEM_EVENT_ACTIVATE_DONE, /**< 数据上下文激活操作结束，结果见error；尚未查询IP。 */
 };
 
 /** 产品数据上下文的按值结果；当前只支持旧工程使用的CID 1及IPv4。 */
@@ -123,7 +124,9 @@ typedef void (*gt02_modem_event_cb_t)(const struct gt02_modem_event *event, void
  *
  * 单模组、一次绑定、同一时刻只接受一个协议操作。上层不得混用此表与相同命令的原始AT提交，
  * 也不得同时运行旧bring-up控制者；首版事件没有请求编号。所有入口仅限线程调用。
- * init为同步绑定，prepare/query为异步操作；后两者返回0时可能已经发生回调，不代表业务就绪。
+ * init为同步绑定，prepare/query/activate_data_context为异步操作；返回0时可能已回调，不代表业务就绪。
+ * 已接受操作的成功、失败、超时或取消均由实现通过一次完成事件终结；未接受则直接返回错误。
+ * 调用者依完成事件推进，不另设相同操作的超时；多命令或业务URC的完成期限由实现负责。
  */
 struct gt02_modem_ops {
 	/**
@@ -162,6 +165,17 @@ struct gt02_modem_ops {
 	 *       数据上下文无正文或无CID 1时成功返回inactive；目标为IPv6等未支持类型时返回-ENOTSUP。
 	 */
 	int (*query)(enum gt02_modem_query query);
+	/**
+	 * @brief 异步激活产品数据上下文；当前Lierda执行AT+QIACT=1，不修改APN配置。
+	 * @retval 0 已接受，最终交付一次ACTIVATE_DONE；只有完成事件error为0才表示激活命令成功。
+	 * @retval -EACCES 尚未绑定回调，或AT核心尚未初始化。
+	 * @retval -EBUSY 已有协议操作在执行。
+	 * @retval -EAGAIN AT核心正在隔离旧回复，本次未接受，不产生完成事件。
+	 * @return 其他负值为AT提交错误；ISR返回-EWOULDBLOCK。完成错误可为-EIO或-ETIMEDOUT。
+	 * @note 调用者先确认LTE已注册；成功后仍须query(DATA_CONTEXT)确认激活状态及本地IP。
+	 *       不等待注册，不自动重试，不保留调用者数据；已接受操作的超时与取消由下层负责。
+	 */
+	int (*activate_data_context)(void);
 };
 
 #endif /* GT02_MODEM_H_ */

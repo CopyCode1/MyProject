@@ -27,7 +27,7 @@ enum gt02_lierda_command {
 	LIERDA_CMD_RESET,    /**< 预留AT+RESET；需先定义AT核心失步/重启生命周期。 */
 	LIERDA_CMD_QICSGP,   /**< 预留APN、用户名、密码和认证方式的参数模板。 */
 	LIERDA_CMD_QIDEACT,  /**< 预留AT+QIDEACT=1，释放上下文。 */
-	LIERDA_CMD_QIACT,    /**< 预留AT+QIACT=1，激活上下文。 */
+	LIERDA_CMD_QIACT,    /**< AT+QIACT=1，激活产品CID 1；成功后仍须查询本地IP。 */
 	LIERDA_CMD_QIOPEN,   /**< 预留TCP连接模板；OK不等于连接成功，仍需结果URC。 */
 	LIERDA_CMD_QICLOSE,  /**< 预留按连接编号关闭TCP的模板。 */
 	LIERDA_CMD_QISEND,   /**< 预留发送模板；需提示符、定长载荷和SEND OK/FAIL处理。 */
@@ -44,9 +44,10 @@ extern const struct gt02_at_profile gt02_lierda_at_profile;
 /**
  * 厂家协议操作表，供装配层注入服务或专用验证入口。
  * init只绑定事件回调；AT配置/I/O仍由装配层初始化，硬件上电与启动等待由调用者组织。
- * 每次RDY上报统一STARTUP_READY，服务按阶段过滤重复；prepare/query通过完成事件返回，不创建线程。
- * 数据查询只解释CID 1的IPv4结果，不配置APN、不激活上下文、不承诺TCP已可用。
- * 必须在上电前绑定回调；本次开机重复RDY不再通知，不支持重启后复用去重状态。
+ * 每次RDY上报STARTUP_READY，服务按阶段过滤重复；准备、查询和激活均以完成事件返回，不创建线程。
+ * 数据查询只解释CID 1的IPv4结果；激活通过独立activate_data_context操作发起，不配置APN。
+ * 激活完成不承诺IP已可用或TCP成功，服务须另行查询确认。
+ * 必须在上电前绑定回调；RDY可能在power_on返回前到达。
  */
 extern const struct gt02_modem_ops gt02_lierda_ops;
 

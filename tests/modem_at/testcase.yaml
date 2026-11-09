@@ -23,6 +23,12 @@ tests:
     extra_configs: [CONFIG_AT_TEST_RECOVERY=y, CONFIG_AT_TEST_RECOVERY_CASE=7]
   gt02.modem_at.recovery_full_queue:
     extra_configs: [CONFIG_AT_TEST_RECOVERY=y, CONFIG_AT_TEST_RECOVERY_CASE=8]
+  gt02.modem_at.recovery_rearm_deadline:
+    extra_configs: [CONFIG_AT_TEST_RECOVERY=y, CONFIG_AT_TEST_RECOVERY_CASE=9]
+  gt02.modem_at.recovery_blocked_rearm:
+    extra_configs: [CONFIG_AT_TEST_RECOVERY=y, CONFIG_AT_TEST_RECOVERY_CASE=10]
+  gt02.modem_at.recovery_blocked_power_off:
+    extra_configs: [CONFIG_AT_TEST_RECOVERY=y, CONFIG_AT_TEST_RECOVERY_CASE=11]
   gt02.modem_at.timeout:
     extra_configs:
       - CONFIG_AT_TEST_FAULT_CASE=0
@@ -81,7 +87,51 @@ tests:
     extra_configs:
       - CONFIG_AT_TEST_NETWORK=y
       - CONFIG_AT_TEST_NETWORK_CASE=6
-  gt02.modem_at.network_stale_and_protection:
+  gt02.modem_at.network_delayed_query_and_stale:
     extra_configs:
       - CONFIG_AT_TEST_NETWORK=y
       - CONFIG_AT_TEST_NETWORK_CASE=7
+  gt02.modem_at.network_wrong_prepare_event:
+    extra_configs:
+      - CONFIG_AT_TEST_NETWORK=y
+      - CONFIG_AT_TEST_NETWORK_CASE=8
+  gt02.modem_at.network_wrong_query_event:
+    extra_configs:
+      - CONFIG_AT_TEST_NETWORK=y
+      - CONFIG_AT_TEST_NETWORK_CASE=9
+  gt02.modem_at.network_delayed_prepare:
+    extra_configs:
+      - CONFIG_AT_TEST_NETWORK=y
+      - CONFIG_AT_TEST_NETWORK_CASE=10
+  gt02.modem_at.network_fault_while_waiting:
+    extra_configs:
+      - CONFIG_AT_TEST_NETWORK=y
+      - CONFIG_AT_TEST_NETWORK_CASE=11
+  gt02.modem_at.network_prepare_rejected_retry:
+    extra_configs: [CONFIG_AT_TEST_NETWORK=y, CONFIG_AT_TEST_NETWORK_CASE=12]
+  gt02.modem_at.network_prepare_timeout_retry:
+    extra_configs: [CONFIG_AT_TEST_NETWORK=y, CONFIG_AT_TEST_NETWORK_CASE=13]
+  gt02.modem_at.network_event_overflow:
+    extra_configs: [CONFIG_AT_TEST_NETWORK=y, CONFIG_AT_TEST_NETWORK_CASE=14]
+  gt02.modem_at.network_prepare_error:
+    extra_configs: [CONFIG_AT_TEST_NETWORK=y, CONFIG_AT_TEST_NETWORK_CASE=15]
+  gt02.modem_at.network_sim_not_ready:
+    extra_configs: [CONFIG_AT_TEST_NETWORK=y, CONFIG_AT_TEST_NETWORK_CASE=16]
+  gt02.modem_at.network_blocked_power_on_fault:
+    extra_configs: [CONFIG_AT_TEST_NETWORK=y, CONFIG_AT_TEST_NETWORK_CASE=17]
+  gt02.modem_at.network_blocked_power_on_overflow:
+    extra_configs: [CONFIG_AT_TEST_NETWORK=y, CONFIG_AT_TEST_NETWORK_CASE=18]
+  gt02.modem_at.network_activation_wait:
+    extra_configs: [CONFIG_AT_TEST_NETWORK=y, CONFIG_AT_TEST_NETWORK_CASE=19]
+  gt02.modem_at.network_activation_error_retry:
+    extra_configs: [CONFIG_AT_TEST_NETWORK=y, CONFIG_AT_TEST_NETWORK_CASE=20]
+  gt02.modem_at.network_activation_rejected_retry:
+    extra_configs: [CONFIG_AT_TEST_NETWORK=y, CONFIG_AT_TEST_NETWORK_CASE=21]
+  gt02.modem_at.network_activation_after_registration:
+    extra_configs: [CONFIG_AT_TEST_NETWORK=y, CONFIG_AT_TEST_NETWORK_CASE=22]
+  gt02.modem_at.network_wrong_activation_event:
+    extra_configs: [CONFIG_AT_TEST_NETWORK=y, CONFIG_AT_TEST_NETWORK_CASE=23]
+  gt02.modem_at.network_activation_timeout_retry:
+    extra_configs: [CONFIG_AT_TEST_NETWORK=y, CONFIG_AT_TEST_NETWORK_CASE=24]
+  gt02.modem_at.network_activation_fault_and_late_result:
+    extra_configs: [CONFIG_AT_TEST_NETWORK=y, CONFIG_AT_TEST_NETWORK_CASE=25]

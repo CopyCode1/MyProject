@@ -135,6 +135,7 @@ ZTEST(gt02_capability, test_protocol_ops)
 	zassert_equal(modem->prepare(), -EACCES);
 	zassert_equal(modem->query(GT02_MODEM_QUERY_SIM), -EACCES);
 	zassert_equal(modem->query(GT02_MODEM_QUERY_DATA_CONTEXT), -EACCES);
+	zassert_equal(modem->activate_data_context(), -EACCES);
 	zassert_equal(modem->init(NULL, NULL), -EINVAL);
 	zassert_ok(modem->init(on_event, &receiver_context));
 	zassert_equal(modem->init(on_event, NULL), -EALREADY);
@@ -155,6 +156,7 @@ ZTEST(gt02_capability, test_protocol_ops)
 	zassert_ok(k_sem_take(&tx_started, K_SECONDS(2)));
 	zassert_equal(modem->prepare(), -EBUSY);
 	zassert_equal(modem->query(GT02_MODEM_QUERY_SIM), -EBUSY);
+	zassert_equal(modem->activate_data_context(), -EBUSY);
 	k_sem_give(&release_tx);
 	expect_event(GT02_MODEM_EVENT_PREPARE_DONE, 0, GT02_MODEM_SIM_UNKNOWN);
 	/* 任一步ERROR都只报告一个失败，不自动重试或继续后续准备命令。 */
@@ -165,6 +167,19 @@ ZTEST(gt02_capability, test_protocol_ops)
 	add_script("ATE0", "ERROR\r\n", false);
 	zassert_ok(modem->prepare());
 	expect_event(GT02_MODEM_EVENT_PREPARE_DONE, -EIO, GT02_MODEM_SIM_UNKNOWN);
+
+	/* 激活是独立异步操作；等待期间拒绝其他操作，最终结果不冒充IP查询结果。 */
+	add_script("AT+QIACT=1", "OK\r\n", true);
+	zassert_ok(modem->activate_data_context());
+	zassert_ok(k_sem_take(&tx_started, K_SECONDS(2)));
+	zassert_equal(modem->activate_data_context(), -EBUSY);
+	zassert_equal(modem->query(GT02_MODEM_QUERY_DATA_CONTEXT), -EBUSY);
+	zassert_equal(modem->prepare(), -EBUSY);
+	k_sem_give(&release_tx);
+	expect_event(GT02_MODEM_EVENT_ACTIVATE_DONE, 0, GT02_MODEM_SIM_UNKNOWN);
+	add_script("AT+QIACT=1", "ERROR\r\n", false);
+	zassert_ok(modem->activate_data_context());
+	expect_event(GT02_MODEM_EVENT_ACTIVATE_DONE, -EIO, GT02_MODEM_SIM_UNKNOWN);
 
 	const struct {
 		const char *reply;
@@ -255,6 +270,7 @@ ZTEST(gt02_capability, test_protocol_ops)
 	zassert_equal(modem->query(GT02_MODEM_QUERY_SIM), -EAGAIN);
 	zassert_equal(modem->query(GT02_MODEM_QUERY_DATA_CONTEXT), -EAGAIN);
 	zassert_equal(modem->prepare(), -EAGAIN);
+	zassert_equal(modem->activate_data_context(), -EAGAIN);
 	k_sleep(K_MSEC(40));
 	zassert_equal(k_msgq_get(&events, &unused, K_NO_WAIT), -ENOMSG);
 	zassert_equal(k_msgq_num_used_get(&scripts), 0);

@@ -1,6 +1,10 @@
 /**
  * @file
- * @brief 单线程AT事务核心：SDK负责文本分片，项目负责表分发和最终回调。
+ * @brief 单线程串行执行AT请求，区分事务正文与URC，管理超时隔离及会话恢复。
+ *
+ * 阅读顺序：状态/资源 → 请求收尾与故障动作 → 行解析 → Worker推进 → 公共接口。
+ * Worker独占事务及解析数据；提交线程只操作受锁保护的FIFO和恢复请求。
+ * 不控制电源、不决定网络重试策略，SDK只负责文本缓存和完整行回调。
  */
 #include <errno.h>
 #include <string.h>
@@ -21,74 +25,99 @@ LOG_MODULE_REGISTER(gt02_at, LOG_LEVEL_INF);
 #define AT_READ_SLICE_MS 20
 #define AT_DRAIN_DEFAULT_MS 5000
 
-/* SDK每次只接收一小段，且输入先检查行长；4个固定块不使用通用堆。 */
-NET_BUF_POOL_FIXED_DEFINE(at_pool, 4, 512, 0, NULL);
-static struct modem_cmd_handler parser;
-static struct modem_cmd_handler_data parser_data;
-static char match_buffer[AT_LINE_SIZE + 1];
-static const uint8_t *input;
-static size_t input_left;
-
-/* API状态和请求FIFO由queue_lock保护，其余事务/解析状态只归AT线程。 */
-enum core_state { CORE_UNINITIALIZED, CORE_STARTING, CORE_READY, CORE_DRAINING, CORE_FAULTED };
-static struct k_spinlock queue_lock;
-static enum core_state state;
-static const struct gt02_at_profile *registered;
-static const struct gt02_at_io_ops *transport; /* 仅依赖注入的字节能力，不依赖具体硬件符号。 */
-/* 每个排队请求拥有独立文本；出队复制到active_request后，原槽位才能重新入队。 */
-struct at_request {
-	const struct gt02_at_command *command; /* 长期有效的只读规则，不复制回调上下文。 */
-	char text[GT02_AT_COMMAND_MAX + 1];     /* 本次完整命令，含NUL、不含CRLF。 */
+/* 核心状态表示是否允许调度，不等同于模组已启动、驻网或TCP已连接。 */
+enum core_state {
+	CORE_UNINITIALIZED, /* 尚未绑定配置。 */
+	CORE_STARTING,      /* 初始化解析器；Worker尚未启动。 */
+	CORE_READY,         /* 可接受请求；tx.command区分空闲与在途。 */
+	CORE_DRAINING,      /* 当前请求已超时，等旧最终响应；拒绝新请求。 */
+	CORE_FAULTED,       /* 禁止普通发送，继续解析URC，等待显式会话恢复。 */
 };
+
+/* 已接受的每个请求持有独立文本，出队后复制到唯一在途事务。 */
+struct at_request {
+	const struct gt02_at_command *command;
+	char text[GT02_AT_COMMAND_MAX + 1];
+};
+
+/* 只有Worker修改；command在完成回调前清空，正文在回调返回后才能复用。 */
+static struct {
+	struct at_request request;
+	const struct gt02_at_command *command;
+	char body[AT_BODY_SIZE + 1];
+	size_t body_size;
+	int64_t deadline_ms;
+	bool completed; /* 已解析最终响应，尚未在SDK外执行完成回调。 */
+	enum gt02_at_result result;
+} tx;
+
+/* 接收状态独立于是否允许发送；残行只能在SDK返回后的Worker安全点清理。 */
+NET_BUF_POOL_FIXED_DEFINE(at_pool, 4, 512, 0, NULL);
+static struct {
+	struct modem_cmd_handler handler;
+	struct modem_cmd_handler_data data;
+	char match_buffer[AT_LINE_SIZE + 1];
+	const uint8_t *input;
+	size_t input_left;
+	size_t line_size;
+	bool discard_line;
+	bool read_succeeded_once; /* read曾返回0；覆盖Worker整个生命周期，不随残行或会话清理重置。 */
+} rx;
+
+static struct k_spinlock queue_lock; /* 保护核心状态、FIFO和恢复请求，不持锁调用用户。 */
+static enum core_state state;
 static struct at_request queue[AT_QUEUE_SIZE];
-static struct at_request active_request;
 static size_t queue_head;
 static size_t queue_count;
-static const struct gt02_at_command *current;
-static char body[AT_BODY_SIZE + 1];
-static size_t body_size;
-static int64_t deadline_ms;
-static bool terminal_ready;
-static enum gt02_at_result terminal_result;
-static int fatal_error;
-static size_t line_size;
-static bool discard_line;
-static bool old_terminal_seen; /* 只由AT线程访问：隔离期已收到旧事务的最终结束行。 */
-static uint32_t drain_timeout_ms;
-static int64_t drain_deadline_ms;
+static const struct gt02_at_profile *registered;
+static const struct gt02_at_io_ops *transport;
 static gt02_at_fault_callback_t fault_callback;
 static void *fault_user_data;
-static bool session_broken;
-static bool session_received;
-K_MUTEX_DEFINE(rearm_lock);
+static uint32_t drain_timeout_ms;
+
+/* 隔离的结束证据和期限只归Worker；不能靠清缓存或静默直接放行。 */
+static bool old_terminal_seen;
+static int64_t drain_deadline_ms;
+static int pending_error; /* 解析/发送路径只登记错误，退出SDK后再收尾。 */
+
+/* 故障后的本地通道观测是恢复的必要条件，不能证明物理模组已结束旧命令。 */
+enum session_progress {
+	SESSION_UNCONFIRMED,  /* 未观察到故障后的通道断开。 */
+	SESSION_DISCONNECTED, /* 已观察到断开，尚无随后接收的数据。 */
+	SESSION_RECEIVING,    /* 已收到断开后的数据；仍须检查残行及调用方的会话确认。 */
+};
+static enum session_progress session_progress;
+K_MUTEX_DEFINE(rearm_lock); /* 串行化外部恢复调用。 */
 K_SEM_DEFINE(rearm_done, 0, 1);
-static bool rearm_pending; /* queue_lock保护；只有Worker执行恢复。 */
+static bool rearm_pending; /* queue_lock保护；实际恢复仍由Worker完成。 */
 static int rearm_result;
 
-/* 仅在SDK解析返回后的Worker安全点释放残行；保留协议表、固定池和解析器锁。 */
+/* 仅在SDK解析返回后的Worker安全点释放残行；保留协议表、固定池和解析器锁。
+ * read_succeeded_once是历史观测，不属于待清理的残行状态。
+ */
 static void clear_rx_context(void)
 {
-	if (parser_data.rx_buf != NULL) {
-		net_buf_unref(parser_data.rx_buf);
-		parser_data.rx_buf = NULL;
+	if (rx.data.rx_buf != NULL) {
+		net_buf_unref(rx.data.rx_buf);
+		rx.data.rx_buf = NULL;
 	}
-	parser_data.last_error = 0;
-	match_buffer[0] = '\0';
-	line_size = 0;
-	discard_line = false;
-	input = NULL;
-	input_left = 0;
+	rx.data.last_error = 0;
+	rx.match_buffer[0] = '\0';
+	rx.line_size = 0;
+	rx.discard_line = false;
+	rx.input = NULL;
+	rx.input_left = 0;
 }
 
 /* 请求已全部通知后重建本地解析上下文；清缓存本身不改变调度状态。 */
 static void clear_context(void)
 {
-	current = NULL;
-	body_size = 0;
-	terminal_ready = false;
+	tx.command = NULL;
+	tx.body_size = 0;
+	tx.completed = false;
 	old_terminal_seen = false;
-	fatal_error = 0;
-	deadline_ms = 0;
+	pending_error = 0;
+	tx.deadline_ms = 0;
 	drain_deadline_ms = 0;
 	clear_rx_context();
 }
@@ -96,8 +125,8 @@ static void clear_context(void)
 /* 完整批次已处理且SDK没有残留字节时，才允许调度或重建会话。 */
 static bool parser_at_boundary(void)
 {
-	return line_size == 0 && !discard_line && input_left == 0 &&
-		(parser_data.rx_buf == NULL || net_buf_frags_len(parser_data.rx_buf) == 0);
+	return rx.line_size == 0 && !rx.discard_line && rx.input_left == 0 &&
+		(rx.data.rx_buf == NULL || net_buf_frags_len(rx.data.rx_buf) == 0);
 }
 
 /* 长度参与匹配，避免短行、内嵌NUL或SDK残留字符导致错误命中。 */
@@ -191,7 +220,7 @@ static bool take_request(void)
 	bool found = queue_count != 0;
 
 	if (found) {
-		active_request = queue[queue_head];
+		tx.request = queue[queue_head];
 		queue_head = (queue_head + 1) % AT_QUEUE_SIZE;
 		--queue_count;
 	}
@@ -231,109 +260,120 @@ static void log_line(const char *line, size_t length)
 /* 事务已经结束再通知用户；回调返回后才能复用共享正文，禁止交付失败时的半截内容。 */
 static void finish_current(enum gt02_at_result result)
 {
-	const struct gt02_at_command *cmd = current;
+	const struct gt02_at_command *cmd = tx.command;
 
-	current = NULL;
-	terminal_ready = false;
+	tx.command = NULL;
+	tx.completed = false;
 	LOG_INF("AT done: id=%u result=%d", cmd->id, result);
-	cmd->callback(result, result == GT02_AT_SUCCESS && body_size != 0 ? body : NULL,
-		      result == GT02_AT_SUCCESS ? body_size : 0, cmd->user_data);
-	body_size = 0;
+	cmd->callback(result, result == GT02_AT_SUCCESS && tx.body_size != 0 ? tx.body : NULL,
+		      result == GT02_AT_SUCCESS ? tx.body_size : 0, cmd->user_data);
+	tx.body_size = 0;
 }
 
-/* 超时进入隔离等待，传输/完整性故障进入FAULT；先暂停提交，再逐个通知请求一次。
- * 排队请求尚未发送，取消后由上层决定是否重新提交；不在AT层重试业务或控制电源。
- */
-static void fail_core(int error, bool isolate)
+/* 调度已封闭后结束所有已接受请求；当前请求按原因完成，待发请求统一FAILED。 */
+static void cancel_requests(enum gt02_at_result current_result)
+{
+	if (tx.command != NULL) {
+		finish_current(current_result);
+	}
+	while (take_request()) {
+		const struct gt02_at_command *cmd = tx.request.command;
+
+		cmd->callback(GT02_AT_FAILED, NULL, 0, cmd->user_data);
+	}
+	pending_error = 0;
+}
+
+/* 命令超时：先封闭提交并通知请求，再保留旧解析上下文等待最终响应。 */
+static void begin_isolation(void)
 {
 	k_spinlock_key_t key = k_spin_lock(&queue_lock);
 
+	state = CORE_DRAINING;
+	k_spin_unlock(&queue_lock, key);
+	old_terminal_seen = false;
+	LOG_WRN("AT requests ended: error=%d; queued requests cancelled", -ETIMEDOUT);
+	drain_deadline_ms = k_uptime_get() + drain_timeout_ms;
+	LOG_WRN("AT timeout: waiting for old final result; RX/URC remain active");
+	cancel_requests(GT02_AT_TIMEOUT);
+}
+
+/* 流失效或隔离到期：收尾并清解析数据，通知一次故障；重复错误只清接收残留。 */
+static void enter_fault(int error)
+{
+	k_spinlock_key_t key = k_spin_lock(&queue_lock);
 	bool already_faulted = state == CORE_FAULTED;
 
-	state = isolate ? CORE_DRAINING : CORE_FAULTED;
+	state = CORE_FAULTED;
 	k_spin_unlock(&queue_lock, key);
 	if (already_faulted) {
 		clear_rx_context();
-		session_received = false;
-		fatal_error = 0;
+		if (session_progress == SESSION_RECEIVING) {
+			session_progress = SESSION_DISCONNECTED;
+		}
+		pending_error = 0;
 		return;
 	}
 	old_terminal_seen = false;
 	LOG_WRN("AT requests ended: error=%d; queued requests cancelled", error);
-	if (isolate) {
-		drain_deadline_ms = k_uptime_get() + drain_timeout_ms;
-		LOG_WRN("AT timeout: waiting for old final result; RX/URC remain active");
-	} else {
-		LOG_ERR("AT transport/parser fault; normal scheduling suspended");
-	}
-	if (current != NULL) {
-		finish_current(isolate ? GT02_AT_TIMEOUT : GT02_AT_FAILED);
-	}
-	while (take_request()) {
-		const struct gt02_at_command *cmd = active_request.command;
-
-		cmd->callback(GT02_AT_FAILED, NULL, 0, cmd->user_data);
-	}
-	fatal_error = 0;
-	if (!isolate) {
-		clear_context();
-		session_broken = false;
-		session_received = false;
-		if (fault_callback != NULL) {
-			fault_callback(error, fault_user_data);
-		}
+	LOG_ERR("AT transport/parser fault; normal scheduling suspended");
+	cancel_requests(GT02_AT_FAILED);
+	clear_context();
+	session_progress = SESSION_UNCONFIRMED;
+	if (fault_callback != NULL) {
+		fault_callback(error, fault_user_data);
 	}
 }
 
 /* 在唯一共享缓存中追加一行正文；超限使流失效，不交付截断结果。 */
 static void append_body(const char *line, size_t length)
 {
-	size_t separator = body_size != 0 ? 1 : 0;
+	size_t separator = tx.body_size != 0 ? 1 : 0;
 
-	if (length + separator > AT_BODY_SIZE - body_size) {
-		fatal_error = -EMSGSIZE;
+	if (length + separator > AT_BODY_SIZE - tx.body_size) {
+		pending_error = -EMSGSIZE;
 		return;
 	}
 	if (separator != 0) {
-		body[body_size++] = '\n';
+		tx.body[tx.body_size++] = '\n';
 	}
-	memcpy(&body[body_size], line, length);
-	body_size += length;
-	body[body_size] = '\0';
+	memcpy(&tx.body[tx.body_size], line, length);
+	tx.body_size += length;
+	tx.body[tx.body_size] = '\0';
 }
 
 /* SDK已拼好完整行；结束行优先分发。隔离期的结束行只用于确认旧事务结束，不再次回调。 */
 MODEM_CMD_DEFINE(on_line)
 {
 	const char *line = data->match_buf;
-	bool active = current != NULL && !terminal_ready;
+	bool active = tx.command != NULL && !tx.completed;
 
 	ARG_UNUSED(argv);
 	ARG_UNUSED(argc);
 	data->match_buf[len] = '\0';
 	log_line(line, len);
-	if (fatal_error != 0) {
+	if (pending_error != 0) {
 		return 0;
 	}
 	if (matches(line, len, "OK", true) ||
-		matches(line, len, "ERROR", true) ||
+	    matches(line, len, "ERROR", true) ||
 	    matches(line, len, "+CME ERROR:", false) ||
 	    matches(line, len, "+CMS ERROR:", false)) {
 		if (active) {
-			terminal_result = matches(line, len, "OK", true) &&
-				(!current->require_response || body_size != 0) ?
+			tx.result = matches(line, len, "OK", true) &&
+				(!tx.command->require_response || tx.body_size != 0) ?
 				GT02_AT_SUCCESS : GT02_AT_FAILED;
-			terminal_ready = true;
+			tx.completed = true;
 		} else if (state == CORE_DRAINING) {
 			old_terminal_seen = true;
 		}
 		return 0;
 	}
-	if (active && matches(line, len, active_request.text, true)) {
+	if (active && matches(line, len, tx.request.text, true)) {
 		return 0;
 	}
-	if (active && current->response_prefix != NULL && current->response_prefix[0] != '\0' &&
-	    matches(line, len, current->response_prefix, false)) {
+	if (active && tx.command->response_prefix != NULL && tx.command->response_prefix[0] != '\0' &&
+	    matches(line, len, tx.command->response_prefix, false)) {
 		append_body(line, len);
 		return 0;
 	}
@@ -345,7 +385,7 @@ MODEM_CMD_DEFINE(on_line)
 			return 0;
 		}
 	}
-	if (active && current->response_prefix != NULL && current->response_prefix[0] == '\0') {
+	if (active && tx.command->response_prefix != NULL && tx.command->response_prefix[0] == '\0') {
 		append_body(line, len);
 	}
 	return 0;
@@ -358,11 +398,11 @@ static int parser_read(struct modem_iface *iface, uint8_t *buffer, size_t capaci
 		       size_t *received)
 {
 	ARG_UNUSED(iface);
-	*received = MIN(capacity, input_left);
+	*received = MIN(capacity, rx.input_left);
 	if (*received != 0) {
-		memcpy(buffer, input, *received);
-		input += *received;
-		input_left -= *received;
+		memcpy(buffer, rx.input, *received);
+		rx.input += *received;
+		rx.input_left -= *received;
 	}
 	return 0;
 }
@@ -373,10 +413,10 @@ static struct modem_iface parser_iface = { .read = parser_read };
 static void feed_parser(const uint8_t *bytes, size_t length)
 {
 	if (length != 0) {
-		input = bytes;
-		input_left = length;
-		modem_cmd_handler_process(&parser, &parser_iface);
-		input = NULL;
+		rx.input = bytes;
+		rx.input_left = length;
+		modem_cmd_handler_process(&rx.handler, &parser_iface);
+		rx.input = NULL;
 	}
 }
 
@@ -388,26 +428,26 @@ static void receive_bytes(const uint8_t *bytes, size_t length)
 	for (size_t i = 0; i < length; ++i) {
 		bool end = bytes[i] == '\r' || bytes[i] == '\n';
 
-		if (discard_line) {
-			discard_line = !end;
+		if (rx.discard_line) {
+			rx.discard_line = !end;
 			start = i + 1;
 			continue;
 		}
 		if (end) {
 			feed_parser(&bytes[start], i + 1 - start);
-			line_size = 0;
+			rx.line_size = 0;
 			start = i + 1;
-			if (fatal_error != 0) {
+			if (pending_error != 0) {
 				return;
 			}
-		} else if (++line_size > AT_LINE_SIZE) {
-			if (current != NULL && !terminal_ready) {
-				fatal_error = -EMSGSIZE;
+		} else if (++rx.line_size > AT_LINE_SIZE) {
+			if (tx.command != NULL && !tx.completed) {
+				pending_error = -EMSGSIZE;
 				return;
 			}
 			LOG_WRN("Discarding oversized idle RX line");
 			clear_rx_context();
-			discard_line = true;
+			rx.discard_line = true;
 			start = i + 1;
 		}
 	}
@@ -415,90 +455,89 @@ static void receive_bytes(const uint8_t *bytes, size_t length)
 }
 
 /* 事务先就位再发送完整命令；原始write的错误与短发送均会停止后续请求。 */
-static void start_request(const struct gt02_at_command *cmd)
+static void start_request(void)
 {
+	const struct gt02_at_command *cmd = tx.request.command;
 	char text[GT02_AT_COMMAND_MAX + 2];
-	size_t length = strlen(active_request.text);
+	size_t length = strlen(tx.request.text);
 	size_t written = 0;
 	int ret;
 
-	current = cmd;
-	body_size = 0;
-	terminal_ready = false;
-	deadline_ms = k_uptime_get() + cmd->timeout_ms;
-	memcpy(text, active_request.text, length);
+	tx.command = cmd;
+	tx.body_size = 0;
+	tx.completed = false;
+	tx.deadline_ms = k_uptime_get() + cmd->timeout_ms;
+	memcpy(text, tx.request.text, length);
 	memcpy(&text[length], "\r\n", 2);
-	LOG_INF("AT TX: %s", active_request.text);
+	LOG_INF("AT TX: %s", tx.request.text);
 	ret = transport->write((const uint8_t *)text, length + 2, &written);
 	if (ret != 0 || written != length + 2) {
 		LOG_ERR("AT write failed: error=%d written=%u/%u", ret,
 			(unsigned int)written, (unsigned int)(length + 2));
-		fatal_error = ret != 0 ? ret : -EIO;
+		pending_error = ret != 0 ? ret : -EIO;
 	}
 }
 
-/* AT线程接收并解析一批输入，返回字节数或负错误码；尚未上电和正常等待返回0。
- * channel_seen记录是否曾成功读取已启用通道，用于区分初始未上电与后续意外掉线。
+/* AT线程接收并解析一批输入；长度留在本函数，错误登记到pending_error后由推进步骤收尾。
+ * 首次成功读取前容忍通道未就绪，曾成功读取后再断开则进入故障。
  */
-static int receive_input(bool *channel_seen)
+static void receive_input(void)
 {
 	uint8_t bytes[64];
 	size_t received = 0;
 	int ret = transport->read(bytes, sizeof(bytes), &received, K_MSEC(AT_READ_SLICE_MS));
 
 	if (ret == -EAGAIN) {
-		return 0;
+		return;
 	}
 	if (ret == -EPIPE) {
 		/* 断开总是结束旧残行，但从不自行证明新会话已建立。 */
-		if (state != CORE_FAULTED && *channel_seen) {
-			fail_core(ret, false);
+		if (state != CORE_FAULTED && rx.read_succeeded_once) {
+			enter_fault(ret);
 		}
 		clear_rx_context();
 		if (state == CORE_FAULTED) {
-			session_broken = true;
-			session_received = false;
+			session_progress = SESSION_DISCONNECTED;
 		}
 		k_sleep(K_MSEC(AT_READ_SLICE_MS));
-		return 0;
+		return;
 	}
 	if (ret != 0) {
 		k_sleep(K_MSEC(AT_READ_SLICE_MS));
-		return ret;
+		if (ret < 0) {
+			pending_error = ret;
+		}
+		return;
 	}
-	*channel_seen = true;
+	rx.read_succeeded_once = true;
 	/* read期间也可能越过期限：先通知超时，再把本批输入交给隔离路径，不能丢掉旧结束行。 */
-	if (current != NULL && k_uptime_get() >= deadline_ms) {
-		fail_core(-ETIMEDOUT, true);
+	if (tx.command != NULL && k_uptime_get() >= tx.deadline_ms) {
+		begin_isolation();
 	}
 	/* read也可能跨过隔离期限；过期的最终响应不能再解除故障。 */
 	if (state == CORE_DRAINING && k_uptime_get() >= drain_deadline_ms) {
-		fail_core(-ETIMEDOUT, false);
+		enter_fault(-ETIMEDOUT);
 	}
-	if (state == CORE_FAULTED && session_broken && received != 0) {
-		session_received = true;
+	if (state == CORE_FAULTED && session_progress != SESSION_UNCONFIRMED && received != 0) {
+		session_progress = SESSION_RECEIVING;
 	}
 	receive_bytes(bytes, received);
-	return (int)received;
 }
 
-/* AT线程统一推进调度：故障收尾、隔离期排空、正常完成及出队。
- * 没有旧结束行时保持隔离，不把静默或清缓存当成已恢复；URC和RX由接收路径继续处理。
+/* 批次处理完后按当前状态解释结果：错误优先，其次隔离结束，最后正常完成/出队。
+ * 行解析只登记结果；此处在SDK之外改变调度状态和调用事务完成回调。
  */
-static void advance_transaction(int received)
+static void advance_transaction(void)
 {
-	const struct gt02_at_command *cmd;
-
-	if (received < 0) {
-		fatal_error = received;
-	}
-	if (fatal_error != 0) {
-		goto failed;
-	}
-	if (state == CORE_FAULTED) {
+	if (pending_error != 0) {
+		enter_fault(pending_error);
 		return;
 	}
-	if (state == CORE_DRAINING) {
+	switch (state) {
+	case CORE_FAULTED:
+		/* receive_input已经继续分发URC，此处只禁止普通发送。 */
+		return;
+	case CORE_DRAINING:
 		if (old_terminal_seen && parser_at_boundary()) {
 			k_spinlock_key_t key = k_spin_lock(&queue_lock);
 
@@ -508,22 +547,20 @@ static void advance_transaction(int received)
 			LOG_INF("AT old transaction ended; scheduling resumed");
 		}
 		return;
-	}
-	if (terminal_ready) {
-		finish_current(terminal_result);
-	}
-	/* 先排空已到达的输入，不能让同批次旧OK完成下一条命令。 */
-	if (current != NULL || !parser_at_boundary()) {
+	case CORE_READY:
+		if (tx.completed) {
+			finish_current(tx.result);
+		}
+		/* 必须处理完本批次且没有残行，不要求UART完全空闲。 */
+		if (tx.command == NULL && parser_at_boundary() && take_request()) {
+			start_request();
+		}
+		return;
+	case CORE_UNINITIALIZED:
+	case CORE_STARTING:
+		/* 初始化完成后才启动Worker，这两个状态不进入运行调度。 */
 		return;
 	}
-	if (!take_request()) {
-		return;
-	}
-	cmd = active_request.command;
-	start_request(cmd);
-	return;
-failed:
-	fail_core(fatal_error, false);
 }
 
 /* 外部只登记请求，Worker在SDK调用之外检查证据、重建上下文并回送结果。 */
@@ -536,13 +573,17 @@ static void handle_rearm(void)
 	if (!pending) {
 		return;
 	}
-	int ret = state != CORE_FAULTED ? -EBUSY :
-		!session_broken || !session_received || !parser_at_boundary() ? -EAGAIN : 0;
+	int ret = 0;
+
+	if (state != CORE_FAULTED) {
+		ret = -EBUSY;
+	} else if (session_progress != SESSION_RECEIVING || !parser_at_boundary()) {
+		ret = -EAGAIN;
+	}
 
 	if (ret == 0) {
 		clear_context();
-		session_broken = false;
-		session_received = false;
+		session_progress = SESSION_UNCONFIRMED;
 	}
 	key = k_spin_lock(&queue_lock);
 	if (ret == 0) {
@@ -562,29 +603,27 @@ static void handle_rearm(void)
  */
 static void at_worker(void *p1, void *p2, void *p3)
 {
-	bool channel_seen = false;
-
 	ARG_UNUSED(p1);
 	ARG_UNUSED(p2);
 	ARG_UNUSED(p3);
 	for (;;) {
 		/* 1. 先结束超时或发送失败的请求，确保迟到回复不会交付给新事务。 */
-		if (current != NULL && !terminal_ready && k_uptime_get() >= deadline_ms) {
-			fail_core(-ETIMEDOUT, true);
+		if (tx.command != NULL && !tx.completed && k_uptime_get() >= tx.deadline_ms) {
+			begin_isolation();
 		}
-		if (fatal_error != 0) {
-			fail_core(fatal_error, false);
+		if (pending_error != 0) {
+			enter_fault(pending_error);
 		}
 		if (state == CORE_DRAINING && k_uptime_get() >= drain_deadline_ms) {
-			fail_core(-ETIMEDOUT, false);
+			enter_fault(-ETIMEDOUT);
 		}
 		handle_rearm();
 
 		/* 2. 接收和解析；初始未上电、等待、硬件错误由接收步骤区分。 */
-		int received = receive_input(&channel_seen);
+		receive_input();
 
 		/* 3. 按正常/隔离/故障状态调度，不因一次超时永久跳过调度入口。 */
-		advance_transaction(received);
+		advance_transaction();
 	}
 }
 
@@ -640,8 +679,8 @@ int gt02_at_init(const struct gt02_at_config *config)
 	state = CORE_STARTING;
 	k_spin_unlock(&queue_lock, key);
 	const struct modem_cmd_handler_config parser_config = {
-		.match_buf = match_buffer,
-		.match_buf_len = sizeof(match_buffer),
+		.match_buf = rx.match_buffer,
+		.match_buf_len = sizeof(rx.match_buffer),
 		.buf_pool = &at_pool,
 		.alloc_timeout = K_NO_WAIT,
 		.eol = "\r\n",
@@ -649,7 +688,7 @@ int gt02_at_init(const struct gt02_at_config *config)
 		.response_cmds_len = ARRAY_SIZE(line_dispatch),
 	};
 
-	ret = modem_cmd_handler_init(&parser, &parser_data, &parser_config);
+	ret = modem_cmd_handler_init(&rx.handler, &rx.data, &parser_config);
 	key = k_spin_lock(&queue_lock);
 	registered = ret == 0 ? config->profile : NULL;
 	transport = ret == 0 ? config->io : NULL;

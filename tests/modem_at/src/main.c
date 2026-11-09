@@ -386,7 +386,7 @@ ZTEST(gt02_at, test_protocol_and_fault)
 		zassert_true(cmd->reserved || strchr(cmd->command, '%') == NULL,
 			     "format template must never be executable");
 	}
-	zassert_equal(reserved_count, 9);
+	zassert_equal(reserved_count, 8);
 	/* 无事务的孤立OK不能抢先完成之后的命令。 */
 	inject_text("OK\r\n");
 	k_sleep(K_MSEC(40));
